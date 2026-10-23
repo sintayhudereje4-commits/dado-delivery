@@ -24,8 +24,8 @@
         <form method="POST">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label>Email *</label>
-                <input type="email" name="email" required autofocus>
+                <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
+                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx">
             </div>
             <div class="form-group">
                 <label>{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>

@@ -382,11 +382,12 @@ class ProductVariant(db.Model):
 
 
 class Customer(db.Model):
-    """Registered store customer (email login)."""
+    """Registered store customer (phone login)."""
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), default='')
-    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
-    phone = db.Column(db.String(30), default='')
+    # email kept for DB compatibility; login is by phone only
+    email = db.Column(db.String(120), unique=True, nullable=True, index=True)
+    phone = db.Column(db.String(30), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=utcnow)
@@ -1340,20 +1341,16 @@ def register():
         return redirect(url_for('index'))
     if request.method == 'POST':
         name = request.form.get('name', '').strip()[:120]
-        email = request.form.get('email', '').strip().lower()
         phone = request.form.get('phone', '').strip()[:30]
         password = request.form.get('password', '')
         password2 = request.form.get('password2', '')
         if rate_exceeded('register', 20, 3600):
             flash(_('Too many requests. Please try again later.'), 'error')
             return redirect(url_for('register'))
-        if not email or not password:
-            flash(_('Email and password are required'), 'error')
+        if not phone or not password:
+            flash(_('Phone number and password are required'), 'error')
             return redirect(url_for('register'))
-        if not valid_email(email):
-            flash(_('Please enter a valid email address'), 'error')
-            return redirect(url_for('register'))
-        if phone and not valid_phone(phone):
+        if not valid_phone(phone):
             flash(_('Please enter a valid phone number'), 'error')
             return redirect(url_for('register'))
         if password != password2:
@@ -1363,17 +1360,20 @@ def register():
         if not ok:
             flash(msg, 'error')
             return redirect(url_for('register'))
-        if Customer.query.filter_by(email=email).first():
-            flash(_('Email already registered'), 'error')
+        if Customer.query.filter_by(phone=phone).first():
+            flash(_('Phone number already registered'), 'error')
             return redirect(url_for('register'))
-        c = Customer(name=name, email=email, phone=phone)
+        # synthetic email keeps unique/nullable compatibility with older DBs
+        phone_digits = re.sub(r'[^0-9+]', '', phone)
+        email_placeholder = f'{phone_digits}@phone.local'
+        c = Customer(name=name, email=email_placeholder, phone=phone)
         c.set_password(password)
         db.session.add(c)
         try:
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
-            flash(_('Email already registered'), 'error')
+            flash(_('Phone number already registered'), 'error')
             return redirect(url_for('register'))
         start_fresh_session(customer_id=c.id)
         session.permanent = True
@@ -1387,20 +1387,20 @@ def customer_login():
     if get_current_customer():
         return redirect(url_for('index'))
     if request.method == 'POST':
-        email = request.form.get('email', '').strip().lower()[:120]
+        phone = request.form.get('phone', '').strip()[:30]
         password = request.form.get('password', '')
-        if login_blocked('customer', email):
+        if login_blocked('customer', phone):
             flash(_('Too many failed attempts. Please try again in 15 minutes.'), 'error')
             return render_template('auth/login.html'), 429
-        c = Customer.query.filter_by(email=email, is_active=True).first()
+        c = Customer.query.filter_by(phone=phone, is_active=True).first()
         if c and c.check_password(password):
-            login_succeeded('customer', email)
+            login_succeeded('customer', phone)
             start_fresh_session(customer_id=c.id)
             session.permanent = True
             flash(_('Logged in successfully'), 'success')
             return redirect(url_for('index'))
-        login_failed('customer', email)
-        flash(_('Invalid email or password'), 'error')
+        login_failed('customer', phone)
+        flash(_('Invalid phone or password'), 'error')
     return render_template('auth/login.html')
 
 

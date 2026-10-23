@@ -6,8 +6,10 @@
     <h1>{% if current_lang == 'am' %}የእኔ አካውንት{% else %}My Account{% endif %}</h1>
     <div style="background:#fff;padding:20px;border-radius:12px;margin:16px 0;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
         <p><strong>{% if current_lang == 'am' %}ስም{% else %}Name{% endif %}:</strong> {{ customer.name or '—' }}</p>
-        <p><strong>Email:</strong> {{ customer.email }}</p>
         <p><strong>{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}:</strong> {{ customer.phone or '—' }}</p>
+        {% if customer.email and not customer.email.endswith('@phone.local') %}
+        <p><strong>Email:</strong> {{ customer.email }}</p>
+        {% endif %}
     </div>
     <h2>{% if current_lang == 'am' %}ትዕዛዞቼ{% else %}My Orders{% endif %}</h2>
     {% if orders %}

@@ -31,12 +31,8 @@
                 <input type="text" name="name">
             </div>
             <div class="form-group">
-                <label>Email *</label>
-                <input type="email" name="email" required>
-            </div>
-            <div class="form-group">
-                <label>{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}</label>
-                <input type="tel" name="phone">
+                <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
+                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx">
             </div>
             <div class="form-group">
                 <label>{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>
