@@ -36,7 +36,7 @@
             var lat = {{ order.latitude }};
             var lng = {{ order.longitude }};
             var map = L.map('adminMap').setView([lat, lng], 17);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }).addTo(map);
             L.marker([lat, lng]).addTo(map).bindPopup('Delivery point').openPopup();
         })();
         </script>

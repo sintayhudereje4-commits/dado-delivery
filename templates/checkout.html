@@ -198,13 +198,11 @@ document.addEventListener('DOMContentLoaded', function () {
     let map = null, marker = null;
     if (hasMap) {
         map = L.map('mapPicker').setView([lat, lng], 15);
-        // OpenStreetMap tiles (no API key required). CARTO now requires a free key
-        // since Sep 2026 — if you prefer Voyager style, get a key at
-        // https://carto.com/basemaps/apikey/ and use:
-        // 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=YOUR_KEY'
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Esri World Street Map — free, no API key, reliable
+        // (OSM official tiles block many apps with 403)
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
             maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            attribution: 'Tiles &copy; Esri'
         }).addTo(map);
         marker = L.marker([lat, lng], { draggable: true }).addTo(map);
     } else {

@@ -54,7 +54,7 @@
             <script>
                 if (window.L) {
                     var map = L.map('map').setView([{{ order.latitude }}, {{ order.longitude }}], 16);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+                    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }).addTo(map);
                     L.marker([{{ order.latitude }}, {{ order.longitude }}]).addTo(map);
                 } else {
                     var mapEl = document.getElementById('map');
