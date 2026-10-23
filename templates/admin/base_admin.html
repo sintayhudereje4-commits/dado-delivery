@@ -49,33 +49,11 @@
     }
   });
 
-  // Auto-refresh list pages so new orders / changes appear without manual refresh
+  // Silent auto-refresh every 3s on list pages
   var ep = '{{ request.endpoint or "" }}';
-  var autoPages = {
-    'admin_dashboard': 20,
-    'admin_orders': 15,
-    'admin_support': 20,
-    'admin_customers': 30
-  };
-  var secs = autoPages[ep];
-  if (secs) {
-    var bar = document.createElement('div');
-    bar.id = 'autoRefreshBar';
-    bar.style.cssText = 'position:fixed;bottom:12px;right:12px;background:#1b5e20;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;z-index:9999;opacity:0.9;cursor:pointer;';
-    bar.title = 'Click to refresh now';
-    document.body.appendChild(bar);
-    var left = secs;
-    function tick() {
-      bar.textContent = '↻ Auto-refresh in ' + left + 's';
-      if (left <= 0) {
-        location.reload();
-        return;
-      }
-      left--;
-      setTimeout(tick, 1000);
-    }
-    bar.onclick = function(){ location.reload(); };
-    tick();
+  var autoPages = ['admin_dashboard', 'admin_orders', 'admin_support', 'admin_customers'];
+  if (autoPages.indexOf(ep) !== -1) {
+    setInterval(function(){ location.reload(); }, 3000);
   }
 })();
 </script>

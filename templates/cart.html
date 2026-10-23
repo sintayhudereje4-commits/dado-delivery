@@ -112,9 +112,12 @@ function renderCart() {
             <td data-label="Price">${item.price.toFixed(0)} ብር</td>
             <td data-label="Qty">
                 <div class="qty-control small">
-                    <button onclick="updateQty(${idx}, -1)">−</button>
-                    <span>${escapeHtml(item.quantity)}</span>
-                    <button onclick="updateQty(${idx}, 1)">+</button>
+                    <button type="button" onclick="updateQty(${idx}, -1)">−</button>
+                    <input type="number" class="qty-input" min="1" value="${item.quantity}"
+                           onchange="setQty(${idx}, this.value)"
+                           onblur="setQty(${idx}, this.value)"
+                           onclick="this.select()">
+                    <button type="button" onclick="updateQty(${idx}, 1)">+</button>
                 </div>
             </td>
             <td data-label="Subtotal">${sub.toFixed(0)} ብር</td>
@@ -132,9 +135,12 @@ function renderCart() {
     actions.style.display = 'flex';
 }
 
-function updateQty(idx, delta) {
+function applyQty(idx, qty) {
     const cart = getCart();
-    cart[idx].quantity = Math.max(1, cart[idx].quantity + delta);
+    if (!cart[idx]) return;
+    qty = parseInt(qty, 10);
+    if (isNaN(qty) || qty < 1) qty = 1;
+    cart[idx].quantity = qty;
     const it = cart[idx];
     if (it.bulk_price && it.bulk_min && it.quantity >= it.bulk_min) {
         it.price = it.bulk_price;
@@ -144,6 +150,14 @@ function updateQty(idx, delta) {
     saveCart(cart);
     renderCart();
     updateCartCount();
+}
+function updateQty(idx, delta) {
+    const cart = getCart();
+    if (!cart[idx]) return;
+    applyQty(idx, cart[idx].quantity + delta);
+}
+function setQty(idx, val) {
+    applyQty(idx, val);
 }
 
 function removeItem(idx) {
