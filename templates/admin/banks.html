@@ -1,0 +1,66 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Bank Accounts{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Bank Accounts</h1>
+</div>
+<p class="hint">Customers with orders 100–100,000 ETB deposit here and send transaction ID or receipt.</p>
+
+<form method="POST" class="admin-form" style="margin-bottom:28px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="add">
+    <h3>Add account</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label>Bank name</label>
+            <input type="text" name="bank_name" required placeholder="CBE / Awash / ...">
+        </div>
+        <div class="form-group">
+            <label>Account owner name</label>
+            <input type="text" name="account_name" required>
+        </div>
+        <div class="form-group">
+            <label>Account number</label>
+            <input type="text" name="account_number" required>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Bank Account</button>
+</form>
+
+<div class="table-wrap">
+<table class="admin-table">
+<thead><tr><th>Bank</th><th>Owner</th><th>Account #</th><th>Active</th><th></th></tr></thead>
+<tbody>
+{% for b in banks %}
+<tr>
+    <td colspan="5" style="padding:0;border:none;">
+        <form method="POST" style="display:grid;grid-template-columns:1.2fr 1.2fr 1.2fr auto auto;gap:8px;padding:12px;align-items:end;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="id" value="{{ b.id }}">
+            <div class="form-group" style="margin:0;">
+                <label>Bank</label>
+                <input type="text" name="bank_name" value="{{ b.bank_name }}">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>Owner name</label>
+                <input type="text" name="account_name" value="{{ b.account_name }}">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>Account number</label>
+                <input type="text" name="account_number" value="{{ b.account_number }}">
+            </div>
+            <label class="checkbox-label"><input type="checkbox" name="is_active" value="1" {% if b.is_active %}checked{% endif %}> Active</label>
+            <div>
+                <button type="submit" name="action" value="edit" class="btn btn-sm btn-primary">Save</button>
+                <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger" onclick="return confirm('Delete?')">Del</button>
+            </div>
+        </form>
+    </td>
+</tr>
+{% else %}
+<tr><td colspan="5">No bank accounts</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

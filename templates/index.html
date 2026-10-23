@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ settings.site_name }} - {% if current_lang == 'am' %}ጥራት ያላቸው እህሎች{% else %}Quality Grains & Legumes{% endif %}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="container">
+        <h1>{% if current_lang == 'am' %}ወደ ቤትዎ የሚደርስ ጥራት ያለው እህል{% else %}Quality Grains Delivered to Your Door{% endif %}</h1>
+        <p>{% if current_lang == 'am' %}ምስር፣ ባቄላ፣ ሽሮ፣ አተር እና ሌሎችም — በፍጥነት እና በታማኝነት{% else %}Lentils, beans, shiro, peas and more — fast & reliable delivery{% endif %}</p>
+    </div>
+</section>
+
+<section class="products-section">
+    <div class="container">
+        <h2 class="section-title">{% if current_lang == 'am' %}ምርቶቻችን{% else %}Our Products{% endif %}</h2>
+        <div class="products-grid">
+            {% for product in products %}
+            <article class="product-card">
+                <a href="{{ url_for('product_detail', product_id=product.id) }}" class="product-link">
+                    <div class="product-image">
+                        {% if product.image_path %}
+                            <img src="{{ url_for('static', filename=product.image_path) }}" alt="{{ product.name_am if current_lang == 'am' else product.name_en }}" loading="lazy">
+                        {% else %}
+                            <div class="product-placeholder">
+                                <span>{{ (product.name_am if current_lang == 'am' else product.name_en)[0] }}</span>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="product-info">
+                        <h3>{{ product.name_am if current_lang == 'am' else product.name_en }}</h3>
+                        <p class="product-desc">{{ (product.description_am if current_lang == 'am' else product.description_en)[:80] }}{% if (product.description_am if current_lang == 'am' else product.description_en)|length > 80 %}...{% endif %}</p>
+                        {% set min_price = product.variants|selectattr('is_available')|map(attribute='price')|min %}
+                        {% if min_price %}
+                            <p class="product-price">
+                                {% if current_lang == 'am' %}ከ{% else %}From{% endif %}
+                                <strong>{{ "%.0f"|format(min_price) }} ብር</strong>
+                            </p>
+                        {% endif %}
+                    </div>
+                </a>
+                <a href="{{ url_for('product_detail', product_id=product.id) }}" class="btn btn-primary btn-sm">
+                    {% if current_lang == 'am' %}ይመልከቱ{% else %}View{% endif %}
+                </a>
+            </article>
+            {% else %}
+            <p class="empty-msg">{% if current_lang == 'am' %}ምንም ምርት አልተገኘም{% else %}No products available{% endif %}</p>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}

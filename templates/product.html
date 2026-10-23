@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name_am if current_lang == 'am' else product.name_en }} - {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<section class="product-detail">
+    <div class="container">
+        <p style="margin-bottom:12px;">
+            <a href="{{ url_for('index') }}" class="btn btn-outline btn-sm" style="text-decoration:none;">
+                ← {% if current_lang == 'am' %}ተመለስ{% else %}Back{% endif %}
+            </a>
+        </p>
+        <div class="product-detail-grid">
+            <div class="product-detail-image">
+                {% if product.image_path %}
+                    <img src="{{ url_for('static', filename=product.image_path) }}" alt="{{ product.name_am if current_lang == 'am' else product.name_en }}">
+                {% else %}
+                    <div class="product-placeholder large">
+                        <span>{{ (product.name_am if current_lang == 'am' else product.name_en)[0] }}</span>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="product-detail-info">
+                <h1>{{ product.name_am if current_lang == 'am' else product.name_en }}</h1>
+                <p class="desc">{{ product.description_am if current_lang == 'am' else product.description_en }}</p>
+
+                <h3 class="variants-title">{% if current_lang == 'am' %}ክብደት ይምረጡ{% else %}Select Weight{% endif %}</h3>
+                <div class="variants-list" id="variantsList">
+                    {% for v in product.variants if v.is_available %}
+                    <label class="variant-option">
+                        <input type="radio" name="variant" value="{{ v.id }}"
+                               data-weight="{{ v.weight_kg }}"
+                               data-price="{{ v.price }}"
+                               data-bulk-price="{{ v.bulk_price if v.bulk_price is not none else '' }}"
+                               data-bulk-min="{{ v.bulk_min_qty or 10 }}"
+                               data-stock="{{ v.stock }}"
+                               data-name="{{ product.name_am if current_lang == 'am' else product.name_en }}"
+                               {% if loop.first %}checked{% endif %}>
+                        <span class="variant-label">
+                            <strong>{{ v.weight_kg }} ኪ.ግ</strong>
+                            <span class="variant-price">{{ "%.0f"|format(v.price) }} ብር</span>
+                            {% if v.bulk_price and v.bulk_min_qty %}
+                                <span class="bulk-hint">
+                                    {% if current_lang == 'am' %}≥{{ v.bulk_min_qty }} ፍሬ → {{ "%.0f"|format(v.bulk_price) }} ብር{% else %}≥{{ v.bulk_min_qty }} pcs → {{ "%.0f"|format(v.bulk_price) }} ብር{% endif %}
+                                </span>
+                            {% endif %}
+                            {% if v.stock < 10 %}
+                                <span class="stock-low">{% if current_lang == 'am' %}ጥቂት ቀርቷል{% else %}Low stock{% endif %}</span>
+                            {% endif %}
+                        </span>
+                    </label>
+                    {% else %}
+                    <p>{% if current_lang == 'am' %}አሁን አይገኝም{% else %}Currently unavailable{% endif %}</p>
+                    {% endfor %}
+                </div>
+
+                <div class="qty-row">
+                    <label for="qty">{% if current_lang == 'am' %}ብዛት{% else %}Quantity{% endif %}</label>
+                    <div class="qty-control">
+                        <button type="button" class="qty-btn" id="qtyMinus">−</button>
+                        <input type="number" id="qty" value="1" min="1" max="50">
+                        <button type="button" class="qty-btn" id="qtyPlus">+</button>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary btn-lg" id="addToCartBtn" {% if not product.variants %}disabled{% endif %}>
+                    {% if current_lang == 'am' %}ወደ ጋሪ ጨምር{% else %}Add to Cart{% endif %}
+                </button>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const qtyInput = document.getElementById('qty');
+    document.getElementById('qtyMinus').addEventListener('click', () => {
+        let v = parseInt(qtyInput.value) || 1;
+        if (v > 1) qtyInput.value = v - 1;
+    });
+    document.getElementById('qtyPlus').addEventListener('click', () => {
+        let v = parseInt(qtyInput.value) || 1;
+        qtyInput.value = v + 1;
+    });
+
+    document.getElementById('addToCartBtn').addEventListener('click', function() {
+        const selected = document.querySelector('input[name="variant"]:checked');
+        if (!selected) {
+            showToast('{% if current_lang == "am" %}ክብደት ይምረጡ{% else %}Please select a weight{% endif %}', 'error');
+            return;
+        }
+        const qty = parseInt(qtyInput.value) || 1;
+        const basePrice = parseFloat(selected.dataset.price);
+        const bulkPrice = selected.dataset.bulkPrice ? parseFloat(selected.dataset.bulkPrice) : null;
+        const bulkMin = parseInt(selected.dataset.bulkMin) || 10;
+        const unitPrice = (bulkPrice && qty >= bulkMin) ? bulkPrice : basePrice;
+        const item = {
+            variant_id: parseInt(selected.value),
+            product_id: {{ product.id }},
+            name: selected.dataset.name,
+            weight_kg: parseInt(selected.dataset.weight),
+            price: unitPrice,
+            base_price: basePrice,
+            bulk_price: bulkPrice,
+            bulk_min: bulkMin,
+            quantity: qty
+        };
+        addToCart(item);
+        showToast('{% if current_lang == "am" %}✓ ወደ ጋሪ ተጨምሯል{% else %}✓ Added to cart{% endif %}');
+        const btn = document.getElementById('addToCartBtn');
+        const orig = btn.textContent;
+        btn.textContent = '{% if current_lang == "am" %}ተጨምሯል ✓{% else %}Added ✓{% endif %}';
+        btn.disabled = true;
+        setTimeout(function() {
+            btn.textContent = orig;
+            btn.disabled = false;
+        }, 1500);
+    });
+});
+</script>
+{% endblock %}

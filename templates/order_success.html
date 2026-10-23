@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{% if current_lang == 'am' %}ትዕዛዝ ተሳክቷል{% else %}Order Successful{% endif %} - {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<section class="success-section">
+    <div class="container text-center">
+        <div class="success-icon">✓</div>
+        <div style="max-width:480px;margin:12px auto;padding:14px;background:#e8f5e9;border-radius:12px;color:#1b5e20;">
+            {% if current_lang == 'am' %}
+            <strong>መልእክት፡</strong> ትዕዛዝዎ ተልኳል። የመድረሻ ጊዜው ከተወሰነ በኋላ በ <a href="{{ url_for('cart') }}">ጋሪ</a> ላይ ያያሉ።
+            {% else %}
+            <strong>Message:</strong> Your order was submitted. Once the delivery time is set, you will see it on <a href="{{ url_for('cart') }}">Cart</a>.
+            {% endif %}
+        </div>
+        <p><span style="background:#fff3e0;color:#e65100;padding:8px 16px;border-radius:20px;font-weight:700;">Pending</span></p>
+        <h1>{% if current_lang == 'am' %}ትዕዛዝ ተልኳል!{% else %}Order Submitted!{% endif %}</h1>
+        <p class="order-number">
+            {% if current_lang == 'am' %}የትዕዛዝ ቁጥር{% else %}Order Number{% endif %}:
+            <strong>{{ order.order_number }}</strong>
+        </p>
+        {% if order.estimated_delivery %}
+        <p class="delivery-info">
+            {% if current_lang == 'am' %}
+                በ {{ order.estimated_delivery }} ሰዓታት ውስጥ ይደርሳል
+            {% else %}
+                Estimated delivery within {{ order.estimated_delivery }} hours
+            {% endif %}
+        </p>
+        {% endif %}
+        <div class="order-details-box">
+            <p><strong>{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}:</strong> {{ order.phone }}</p>
+            {% if order.address_text %}
+            <p><strong>{% if current_lang == 'am' %}አድራሻ{% else %}Address{% endif %}:</strong> {{ order.address_text }}</p>
+            {% endif %}
+            {% if order.latitude and order.longitude %}
+            <p><strong>{% if current_lang == 'am' %}GPS ቦታ{% else %}GPS Location{% endif %}:</strong>
+                <a href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank" rel="noopener">
+                    {{ '%.5f'|format(order.latitude) }}, {{ '%.5f'|format(order.longitude) }}
+                </a>
+            </p>
+            {% endif %}
+            <p><strong>{% if current_lang == 'am' %}ጠቅላላ{% else %}Total{% endif %}:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+        </div>
+        
+        {% if order.payment_required %}
+        <div class="order-details-box" style="margin-top:12px;">
+            <p><strong>{% if current_lang == 'am' %}የክፍያ ሁኔታ{% else %}Payment status{% endif %}:</strong>
+                {{ order.payment_status }}
+            </p>
+            {% if order.transaction_id %}
+            <p>Txn: {{ order.transaction_id }}</p>
+            {% endif %}
+            {% if order.payment_note %}
+            <p>{{ order.payment_note }}</p>
+            {% endif %}
+            {% if order.payment_status == 'pending' %}
+            <p style="color:#e65100;">
+                {% if current_lang == 'am' %}ክፍያዎ በማረጋገጥ ላይ ነው — ከተረጋገጠ በኋላ ትዕዛዝ ይቀጥላል።{% else %}Payment pending verification. The order will continue once confirmed.{% endif %}
+            </p>
+            {% elif order.payment_status == 'confirmed' %}
+            <p style="color:#2e7d32;">{% if current_lang == 'am' %}ክፍያ ተረጋግጧል ✓{% else %}Payment confirmed ✓{% endif %}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <a href="{{ url_for('cart') }}" class="btn btn-primary">
+            {% if current_lang == 'am' %}ወደ መነሻ{% else %}Back to Home{% endif %}
+        </a>
+    </div>
+</section>
+{% endblock %}

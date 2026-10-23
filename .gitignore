@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+dado.db
+instance/
+static/uploads/*
+!static/uploads/.gitkeep
+.env

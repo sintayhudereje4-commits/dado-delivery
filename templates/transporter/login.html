@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transporter Login - {{ settings.site_name }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body class="login-body" style="background:linear-gradient(135deg,#1565c0,#0d47a1);">
+    <div class="login-card">
+        {% if settings.transporter_logo_path %}
+        <div style="text-align:center;margin-bottom:16px;">
+            <img src="{{ url_for('static', filename=settings.transporter_logo_path) }}"
+                 alt="{{ settings.site_name }}"
+                 style="height:{{ settings.transporter_logo_height or 80 }}px;max-height:{{ settings.transporter_logo_height or 80 }}px;width:auto;object-fit:contain;">
+        </div>
+        {% elif settings.logo_path %}
+        <div style="text-align:center;margin-bottom:16px;">
+            <img src="{{ url_for('static', filename=settings.logo_path) }}"
+                 alt="{{ settings.site_name }}"
+                 style="height:{{ settings.transporter_logo_height or 80 }}px;max-height:{{ settings.transporter_logo_height or 80 }}px;width:auto;object-fit:contain;">
+        </div>
+        {% endif %}
+        <h1>Transporter</h1>
+        <p style="text-align:center;color:#666;margin-bottom:16px;">{{ settings.site_name }}</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <form method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>Phone number</label>
+                <input type="tel" name="phone" required placeholder="09xxxxxxxx" autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" style="background:#1565c0;">Login</button>
+        </form>
+    </div>
+</body>
+</html>

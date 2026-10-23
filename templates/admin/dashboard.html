@@ -1,0 +1,75 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ total_orders }}</div>
+        <div class="stat-label">Total Orders</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-value">{{ pending_orders }}</div>
+        <div class="stat-label">Pending Orders</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ total_products }}</div>
+        <div class="stat-label">Products</div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-value">{{ open_supports }}</div>
+        <div class="stat-label">Open Support</div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #1565c0;">
+        <div class="stat-value" style="color:#1565c0;">{{ total_transporters }}</div>
+        <div class="stat-label"><a href="{{ url_for('admin_transporters') }}" style="color:inherit;text-decoration:none;">Transporters</a></div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-value">{{ unassigned_orders }}</div>
+        <div class="stat-label">Unassigned to transporter</div>
+    </div>
+</div>
+
+<p style="margin:12px 0 20px;">
+    <a href="{{ url_for('admin_transporters') }}" class="btn btn-primary">Manage Transporters</a>
+    <a href="{{ url_for('admin_orders') }}" class="btn btn-outline">Orders → Assign</a>
+</p>
+
+<h2>Recent Orders</h2>
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Phone</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Transporter</th>
+                <th>Date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in recent_orders %}
+            <tr>
+                <td>{{ o.order_number }}</td>
+                <td>{{ o.phone }}</td>
+                <td>{{ '%.0f'|format(o.total_amount) }} ብር</td>
+                <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+                <td>
+                    {% if o.transporter_id %}
+                        ✓ Assigned
+                    {% else %}
+                        <span style="color:#e65100;">Not assigned</span>
+                    {% endif %}
+                </td>
+                <td>{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td><a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm">View / Assign</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No orders yet</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

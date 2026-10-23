@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Deliveries - Transporter</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <style>
+        body { background:#f0f4f8; margin:0; font-family:Inter,sans-serif; }
+        .top { background:#1565c0; color:#fff; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; }
+        .top a { color:#fff; }
+        .wrap { max-width:720px; margin:0 auto; padding:16px; }
+        .card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+        .card h3 { margin:0 0 8px; font-size:1.05rem; }
+        .meta { font-size:.9rem; color:#555; }
+        .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.75rem; font-weight:600; }
+        .paid { background:#e8f5e9; color:#2e7d32; }
+        .unpaid { background:#fff3e0; color:#e65100; }
+        .btn { display:inline-block; margin-top:10px; background:#1565c0; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:.9rem; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <div>
+            <strong>Transporter</strong><br>
+            <small>{{ transporter.name or transporter.phone }}</small>
+        </div>
+        <form method="POST" action="{{ url_for('transporter_logout') }}" style="margin:0;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="background:none;border:1px solid rgba(255,255,255,.6);color:#fff;padding:6px 12px;border-radius:8px;font:inherit;cursor:pointer;">Logout</button></form>
+    </div>
+    <div class="wrap">
+        <h2>Assigned orders</h2>
+        {% for o in orders %}
+        <div class="card">
+            <h3># {{ o.order_number }}</h3>
+            <div class="meta">
+                <p>Status: <strong>{{ o.status }}</strong></p>
+                <p>Total: {{ '%.0f'|format(o.total_amount) }} ብር</p>
+                <p>
+                    Payment:
+                    {% if o.total_amount > prepay_max %}
+                        <span class="badge unpaid">Collect on delivery (over 100,000)</span>
+                    {% elif o.payment_required %}
+                        {% if o.payment_status == 'confirmed' %}
+                        <span class="badge paid">Paid ✓</span>
+                        {% else %}
+                        <span class="badge unpaid">Payment {{ o.payment_status }}</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="badge paid">No bank payment needed</span>
+                    {% endif %}
+                </p>
+                <p>Items: {% for it in o.items %}{{ it.product_name }} {{ it.weight_kg }}kg ×{{ it.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+            </div>
+            <a class="btn" href="{{ url_for('transporter_order', oid=o.id) }}">Open map & details</a>
+        </div>
+        {% else %}
+        <p style="color:#888;">No orders assigned yet.</p>
+        {% endfor %}
+    </div>
+</body>
+</html>

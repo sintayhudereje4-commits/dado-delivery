@@ -1,0 +1,51 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Orders{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Orders</h1>
+    <div class="filter-tabs">
+        <a href="{{ url_for('admin_orders') }}" class="{% if not current_status %}active{% endif %}">All</a>
+        <a href="{{ url_for('admin_orders', status='pending') }}" class="{% if current_status == 'pending' %}active{% endif %}">Pending</a>
+        <a href="{{ url_for('admin_orders', status='confirmed') }}" class="{% if current_status == 'confirmed' %}active{% endif %}">Confirmed</a>
+        <a href="{{ url_for('admin_orders', status='out_for_delivery') }}" class="{% if current_status == 'out_for_delivery' %}active{% endif %}">Out for Delivery</a>
+        <a href="{{ url_for('admin_orders', status='delivered') }}" class="{% if current_status == 'delivered' %}active{% endif %}">Delivered</a>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Phone</th>
+                <th>Location</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr>
+                <td>{{ o.order_number }}</td>
+                <td>{{ o.phone }}</td>
+                <td>
+                    {% if o.latitude and o.longitude %}
+                        <a href="https://www.google.com/maps?q={{ o.latitude }},{{ o.longitude }}" target="_blank">GPS 📍</a>
+                    {% endif %}
+                    {% if o.address_text %}<br><small>{{ o.address_text[:40] }}...</small>{% endif %}
+                </td>
+                <td>{{ '%.0f'|format(o.total_amount) }} ብር</td>
+                <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+                <td>{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td><a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm">View</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No orders</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

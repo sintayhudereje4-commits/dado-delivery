@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="description" content="Dado Delivery - Quality grains and legumes delivered to your door">
+    <title>{% block title %}{{ settings.site_name }}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        :root {
+            --primary: {{ settings.primary_color }};
+            --secondary: {{ settings.secondary_color }};
+            --font-main: {{ settings.font_family }};
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header class="header">
+        <div class="container header-inner">
+            <a href="{{ url_for('index') }}" class="logo">
+                {% if settings.logo_path %}
+                    <img src="{{ url_for('static', filename=settings.logo_path) }}"
+                         style="height:{{ settings.logo_display_height or 80 }}px;max-height:{{ settings.logo_display_height or 80 }}px;width:auto;object-fit:contain;"
+                         alt="{{ settings.site_name }}" class="logo-img">
+                {% else %}
+                    <span class="logo-text">{{ settings.site_name }}</span>
+                {% endif %}
+            </a>
+            <nav class="nav" id="mainNav">
+                <a href="{{ url_for('index') }}" class="nav-link">{% if current_lang == 'am' %}መነሻ{% else %}Home{% endif %}</a>
+                <a href="{{ url_for('cart') }}" class="nav-link cart-link">
+                    {% if current_lang == 'am' %}ጋሪ{% else %}Cart{% endif %}
+                    <span class="cart-count" id="cartCount">0</span>
+                </a>
+                {% if current_customer %}
+                <a href="{{ url_for('account') }}" class="nav-link">{% if current_lang == 'am' %}አካውንት{% else %}Account{% endif %}</a>
+                <form method="POST" action="{{ url_for('customer_logout') }}" class="inline-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="nav-link link-btn">{% if current_lang == 'am' %}ውጣ{% else %}Logout{% endif %}</button></form>
+                {% else %}
+                <a href="{{ url_for('customer_login') }}" class="nav-link">{% if current_lang == 'am' %}ግባ{% else %}Login{% endif %}</a>
+                <a href="{{ url_for('register') }}" class="nav-link">{% if current_lang == 'am' %}ተመዝገብ{% else %}Register{% endif %}</a>
+                {% endif %}
+                <div class="lang-switch">
+                    <a href="{{ url_for('set_language', lang='am') }}" class="{% if current_lang == 'am' %}active{% endif %}">አማ</a>
+                    <a href="{{ url_for('set_language', lang='en') }}" class="{% if current_lang == 'en' %}active{% endif %}">EN</a>
+                </div>
+            </nav>
+            <button class="menu-toggle" id="menuToggle" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+        </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-container">
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <main class="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>{% if current_lang == 'am' %}{{ settings.footer_text_am }}{% else %}{{ settings.footer_text_en }}{% endif %}</p>
+            <p class="footer-links">
+                <a href="{{ url_for('help_page') }}">{% if current_lang == 'am' %}እገዛ / ድጋፍ{% else %}Help & Support{% endif %}</a>
+                {% if settings.help_phone %} | <a href="tel:{{ settings.help_phone }}">{{ settings.help_phone }}</a>{% endif %}
+            </p>
+            <p class="copyright">&copy; {{ now.year }} {{ settings.site_name }} · www.dadodelivery.com</p>
+        </div>
+    </footer>
+
+    <!-- Floating Help / Live Chat -->
+    <button type="button" id="helpFab" class="help-fab" aria-label="Help">
+        <span class="help-fab-icon">?</span>
+        <span class="help-fab-badge" id="chatBadge" hidden>1</span>
+    </button>
+
+    <div id="chatWidget" class="chat-widget">
+        <div class="chat-header">
+            <div>
+                <strong>{% if current_lang == 'am' %}የእገዛ ማእከል{% else %}Help Center{% endif %}</strong>
+                <small id="chatStatusText">{% if current_lang == 'am' %}ኦንላይን ውይይት{% else %}Online chat{% endif %}</small>
+            </div>
+            <button type="button" id="chatClose" class="chat-close" aria-label="Close">×</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-bubble system">
+                {% if current_lang == 'am' %}
+                    ሰላም! ጥያቄዎን ይፃፉ — በቅርቡ እንመልሳለን።
+                {% else %}
+                    Hi! Write your question — we will reply soon.
+                {% endif %}
+            </div>
+        </div>
+        <div class="chat-contact-row">
+            <input type="text" id="chatName" placeholder="{% if current_lang == 'am' %}ስም (አማራጭ){% else %}Name (optional){% endif %}">
+            <input type="tel" id="chatPhone" placeholder="{% if current_lang == 'am' %}ስልክ (አማራጭ){% else %}Phone (optional){% endif %}">
+        </div>
+        <form id="chatForm" class="chat-input-row">
+            <input type="text" id="chatInput" autocomplete="off" placeholder="{% if current_lang == 'am' %}መልእክት ይፃፉ...{% else %}Type a message...{% endif %}" required>
+            <button type="submit" class="chat-send">{% if current_lang == 'am' %}ላክ{% else %}Send{% endif %}</button>
+        </form>
+        <div class="chat-quick-links">
+            {% if settings.help_phone %}
+            <a href="tel:{{ settings.help_phone }}">📞 {{ settings.help_phone }}</a>
+            {% endif %}
+            {% if settings.help_telegram %}
+            <a href="https://t.me/{{ settings.help_telegram|replace('+', '')|replace(' ', '')|replace('@', '') }}" target="_blank" rel="noopener">Telegram</a>
+            {% endif %}
+            <a href="{{ url_for('help_page') }}">{% if current_lang == 'am' %}ሙሉ ገጽ{% else %}Full page{% endif %}</a>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
