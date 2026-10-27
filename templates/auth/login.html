@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{% if current_lang == 'am' %}ግባ{% else %}Login{% endif %} - {{ settings.site_name }}{% endblock %}
+{% block extra_head %}
+<style>
+.auth-wrap { max-width: 420px; margin: 32px auto; background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.auth-wrap h1 { color: {{ settings.auth_primary_color }}; font-family: {{ settings.auth_font_family }}; margin-bottom: 16px; }
+.auth-wrap .btn-primary { background: {{ settings.auth_primary_color }}; }
+.auth-logo { text-align: center; margin-bottom: 12px; }
+.auth-logo img { height: {{ settings.auth_logo_height or 80 }}px; max-height: {{ settings.auth_logo_height or 80 }}px; width: auto; max-width: 100%; object-fit: contain; }
+.back-link { display: inline-block; margin-bottom: 12px; color: #555; text-decoration: none; font-size: 0.95rem; }
+.back-link:hover { color: {{ settings.auth_primary_color }}; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="auth-wrap">
+        <a href="{{ url_for('index') }}" class="back-link">← {% if current_lang == 'am' %}ተመለስ{% else %}Back{% endif %}</a>
+        {% if settings.auth_logo_path %}
+        <div class="auth-logo"><img src="{{ url_for('static', filename=settings.auth_logo_path) }}" alt=""></div>
+        {% elif settings.logo_path %}
+        <div class="auth-logo"><img src="{{ url_for('static', filename=settings.logo_path) }}" alt=""></div>
+        {% endif %}
+        <h1>{% if current_lang == 'am' %}ወደ አካውንትዎ ይግቡ{% else %}Login to your account{% endif %}</h1>
+        <form method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
+                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx">
+            </div>
+            <div class="form-group">
+                <label>{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">{% if current_lang == 'am' %}ግባ{% else %}Login{% endif %}</button>
+        </form>
+        <p style="margin-top:12px;text-align:center;font-size:.9rem;">
+            <a href="{{ url_for('forgot_password') }}">{% if current_lang == 'am' %}የይለፍ ቃል ረሳሁ?{% else %}Forgot password?{% endif %}</a>
+        </p>
+        <p style="margin-top:8px;text-align:center;">
+            {% if current_lang == 'am' %}አዲስ ነዎት?{% else %}New here?{% endif %}
+            <a href="{{ url_for('register') }}">{% if current_lang == 'am' %}ተመዝገብ{% else %}Register{% endif %}</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

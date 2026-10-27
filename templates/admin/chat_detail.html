@@ -1,0 +1,42 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Chat #{{ chat.id }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Live Chat #{{ chat.id }}</h1>
+    <a href="{{ url_for('admin_support') }}" class="btn btn-outline">← Back</a>
+</div>
+
+<div class="detail-card" style="margin-bottom:16px;">
+    <p><strong>Name:</strong> {{ chat.visitor_name or '—' }}</p>
+    <p><strong>Phone:</strong> {{ chat.visitor_phone or '—' }}</p>
+    <p><strong>Status:</strong> <span class="badge badge-{{ chat.status }}">{{ chat.status }}</span></p>
+    <p><strong>Session:</strong> <code>{{ chat.session_key[:12] }}…</code></p>
+</div>
+
+<div class="detail-card full" style="max-height:420px; overflow-y:auto; background:#f5f7f5;">
+    {% for m in chat.messages %}
+    <div style="margin:10px 0; {% if m.sender == 'visitor' %}text-align:right;{% endif %}">
+        <span style="display:inline-block; max-width:80%; padding:10px 12px; border-radius:12px;
+            {% if m.sender == 'visitor' %}background:#2E7D32;color:#fff;{% else %}background:#fff;border:1px solid #ddd;{% endif %}">
+            <small style="opacity:0.8;">{{ m.sender }} · {{ m.created_at|addis('%H:%M') }}</small><br>
+            {{ m.message }}
+        </span>
+    </div>
+    {% else %}
+    <p style="color:#888;">No messages yet</p>
+    {% endfor %}
+</div>
+
+<form method="POST" class="admin-form" style="margin-top:16px; max-width:640px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+        <label for="message">Reply as Admin</label>
+        <textarea id="message" name="message" rows="3" required placeholder="Type your reply..."></textarea>
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Send Reply</button>
+        <button type="submit" name="action" value="close" class="btn btn-outline" formnovalidate>Close Chat</button>
+    </div>
+</form>
+{% endblock %}

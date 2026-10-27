@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order {{ order.order_number }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <style>
+        body { background:#f0f4f8; margin:0; font-family:Inter,sans-serif; }
+        .top { background:#1565c0; color:#fff; padding:14px 16px; }
+        .top a { color:#fff; text-decoration:none; }
+        .wrap { max-width:720px; margin:0 auto; padding:16px; }
+        .card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+        #map { height:280px; border-radius:12px; margin-top:10px; }
+        .btn { background:#1565c0; color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer; margin-right:8px; margin-top:6px; }
+        .btn-green { background:#2e7d32; }
+        .btn:disabled { opacity:.5; cursor:not-allowed; }
+        table { width:100%; border-collapse:collapse; font-size:.9rem; }
+        td, th { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+        .paid { color:#2e7d32; font-weight:600; }
+        .unpaid { color:#e65100; font-weight:600; }
+        .flash { padding:10px 14px; border-radius:8px; margin-bottom:12px; font-weight:600; }
+        .flash-success { background:#e8f5e9; color:#2e7d32; }
+        .flash-error { background:#ffebee; color:#c62828; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <a href="{{ url_for('transporter_dashboard') }}">← Back</a>
+        <div style="margin-top:6px;"><strong>{{ order.order_number }}</strong></div>
+    </div>
+    <div class="wrap">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% set closed = order.status in ('delivered', 'cancelled') %}
+        <div class="card">
+            {% if closed %}
+            <p style="color:#888;"><strong>Customer details hidden</strong> (order closed)</p>
+            {% else %}
+            <p><strong>Customer phone:</strong> <a href="tel:{{ order.phone }}">{{ order.phone }}</a></p>
+            <p><strong>Name:</strong> {{ order.customer_name or '—' }}</p>
+            <p><strong>Address:</strong> {{ order.address_text or '—' }}</p>
+            {% endif %}
+            <p><strong>Status:</strong>
+                {% if order.status == 'pending' %}Pending
+                {% elif order.status == 'confirmed' %}Confirmed
+                {% elif order.status == 'preparing' %}Preparing
+                {% elif order.status == 'out_for_delivery' %}Out for delivery
+                {% elif order.status == 'delivered' %}Delivered
+                {% elif order.status == 'cancelled' %}Cancelled
+                {% else %}{{ order.status }}{% endif %}
+            </p>
+            <p>
+                <strong>Payment:</strong>
+                {% if order.total_amount > prepay_max %}
+                    <span class="unpaid">NOT prepaid — collect {{ '%.0f'|format(order.total_amount) }} ብር on delivery</span>
+                {% elif order.payment_required and order.payment_status == 'confirmed' %}
+                    <span class="paid">PAID (bank confirmed) — do not collect</span>
+                {% elif order.payment_required %}
+                    <span class="unpaid">Bank payment: {{ order.payment_status }}</span>
+                {% else %}
+                    <span class="paid">No collection needed (order under {{ prepay_min }} ብር)</span>
+                {% endif %}
+            </p>
+            <p><strong>Total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+            {% if order.latitude and order.longitude %}
+            <p>
+                <a href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank" rel="noopener">Open in Google Maps</a>
+            </p>
+            <div id="map"></div>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+            <script>
+            (function(){
+                if (typeof L === 'undefined') {
+                    var el = document.getElementById('map');
+                    if (el) el.innerHTML = '<p style="padding:12px;color:#c62828;">Map failed to load. Use Google Maps link above.</p>';
+                    return;
+                }
+                var map = L.map('map').setView([{{ order.latitude }}, {{ order.longitude }}], 16);
+                L.tileLayer('{{ map_tiles_url }}', {
+                    maxZoom: 19, attribution: '{{ map_attribution }}'
+                }).addTo(map);
+                L.marker([{{ order.latitude }}, {{ order.longitude }}]).addTo(map);
+            })();
+            </script>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h3>Items</h3>
+            <table>
+                <thead><tr><th>Product</th><th>Weight</th><th>Qty</th></tr></thead>
+                <tbody>
+                {% for it in order.items %}
+                <tr>
+                    <td>{{ it.product_name }}</td>
+                    <td>{{ it.weight_kg }} kg</td>
+                    <td>{{ it.quantity }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if not closed %}
+        <div class="card">
+            <h3>Update status</h3>
+            <form method="POST" action="{{ url_for('transporter_order_status', oid=order.id) }}"
+                  onsubmit="return confirm('Update order status?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if order.status != 'out_for_delivery' %}
+                <button class="btn" type="submit" name="status" value="out_for_delivery">Out for delivery</button>
+                {% endif %}
+                <button class="btn btn-green" type="submit" name="status" value="delivered"
+                    {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}disabled title="Upload COD receipt first"{% endif %}>
+                    Mark delivered
+                </button>
+                {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}
+                <p style="font-size:.85rem;color:#e65100;margin-top:8px;">Upload COD receipt below before marking delivered.</p>
+                {% endif %}
+            </form>
+        </div>
+        {% else %}
+        <div class="card">
+            <p style="color:#666;margin:0;">This order is closed ({{ order.status }}). Status buttons are hidden.</p>
+        </div>
+        {% endif %}
+
+        {% if order.total_amount > prepay_max %}
+        <div class="card" style="border:2px solid #e65100;">
+            <h3>🧾 Over 100,000 — COD receipt to Admin</h3>
+            <p style="font-size:.9rem;color:#555;">
+                Collect <strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong> on delivery, then send receipt photo.
+            </p>
+            {% if order.delivery_receipt_path %}
+            <div style="background:#e8f5e9;padding:12px;border-radius:10px;margin:10px 0;">
+                <p style="color:#2e7d32;font-weight:700;margin:0;">✓ Receipt sent</p>
+                {% if order.cod_amount_collected %}
+                <p style="margin:6px 0 0;">Collected: {{ '%.0f'|format(order.cod_amount_collected) }} ብር
+                    {% if order.cod_amount_collected != order.total_amount %}
+                    <span style="color:#e65100;">(order total {{ '%.0f'|format(order.total_amount) }})</span>
+                    {% endif %}
+                </p>
+                {% endif %}
+                <a href="{{ url_for('order_file', oid=order.id, kind='cod') }}" target="_blank" rel="noopener">
+                    <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}"
+                         alt="receipt" style="max-width:100%;max-height:200px;margin-top:8px;border-radius:8px;">
+                </a>
+            </div>
+            {% elif not closed %}
+            <form method="POST" action="{{ url_for('transporter_delivery_receipt', oid=order.id) }}"
+                  enctype="multipart/form-data" style="margin-top:12px;"
+                  onsubmit="return confirm('Send this receipt to admin?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;">Amount collected (ብር) *</label>
+                    <input type="number" name="amount_collected" step="1" required
+                           placeholder="{{ '%.0f'|format(order.total_amount) }}"
+                           style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;">
+                    <small style="color:#666;">Order total is {{ '%.0f'|format(order.total_amount) }} ብር — enter what you actually collected</small>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;">Receipt photo *</label>
+                    <input type="file" name="receipt" accept="image/*" required style="width:100%;padding:8px;">
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;">Note (optional)</label>
+                    <input type="text" name="note" placeholder="e.g. cash / transfer"
+                           style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;">
+                </div>
+                <button type="submit" class="btn btn-green" style="width:100%;font-size:1.05rem;padding:14px;">
+                    📤 Send receipt to Admin
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+
+    </div>
+</body>
+</html>

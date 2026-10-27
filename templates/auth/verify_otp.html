@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{% if current_lang == 'am' %}ኮድ ያረጋግጡ{% else %}Verify code{% endif %} - {{ settings.site_name }}{% endblock %}
+{% block extra_head %}
+<style>
+.auth-wrap { max-width: 420px; margin: 32px auto; background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.auth-wrap h1 { margin-bottom: 8px; }
+.auth-wrap .hint { color:#555; margin-bottom: 18px; font-size:.95rem; }
+.auth-wrap input[name="code"] { letter-spacing: 0.35em; font-size: 1.4rem; text-align: center; }
+.auth-wrap .btn-primary { width: 100%; margin-top: 8px; }
+.resend { margin-top: 16px; text-align: center; font-size: .9rem; }
+.back-link { display: inline-block; margin-bottom: 12px; color: #555; text-decoration: none; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="auth-wrap">
+        <a href="{{ url_for('register') }}" class="back-link">← {% if current_lang == 'am' %}ተመለስ{% else %}Back{% endif %}</a>
+        <h1>{% if current_lang == 'am' %}ኮድ ያረጋግጡ{% else %}Enter verification code{% endif %}</h1>
+        <p class="hint">
+            {% if current_lang == 'am' %}
+            ወደ <strong>{{ phone }}</strong> የላክነውን {{ 6 }} አሃዝ ኮድ ያስገቡ።
+            {% else %}
+            Enter the 6-digit code we sent to <strong>{{ phone }}</strong>.
+            {% endif %}
+        </p>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="verify">
+            <div class="form-group">
+                <label>{% if current_lang == 'am' %}የማረጋገጫ ኮድ{% else %}Verification code{% endif %}</label>
+                <input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus autocomplete="one-time-code" placeholder="000000">
+            </div>
+            <button type="submit" class="btn btn-primary">
+                {% if current_lang == 'am' %}አረጋግጥ{% else %}Verify{% endif %}
+            </button>
+        </form>
+        <div class="resend">
+            <form method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="resend">
+                <button type="submit" style="background:none;border:none;color:#1565c0;cursor:pointer;font:inherit;text-decoration:underline;">
+                    {% if current_lang == 'am' %}ኮድ እንደገና ላክ{% else %}Resend code{% endif %}
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

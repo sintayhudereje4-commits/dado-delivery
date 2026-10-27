@@ -1,0 +1,268 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Order {{ order.order_number }}
+<div class="detail-card full">
+    <h3>Status history</h3>
+    {% if status_logs %}
+    <table class="admin-table">
+        <thead><tr><th>When</th><th>Who</th><th>Field</th><th>From → To</th><th>Note</th></tr></thead>
+        <tbody>
+        {% for log in status_logs %}
+        <tr>
+            <td>{{ log.created_at|addis }}</td>
+            <td>{{ log.actor }}</td>
+            <td>{{ log.field }}</td>
+            <td>{{ log.old_value }} → {{ log.new_value }}</td>
+            <td>{{ log.note }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#888;">No status changes recorded yet.</p>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Order {{ order.order_number }}</h1>
+    <a href="{{ url_for('admin_orders') }}" class="btn btn-outline">← Back</a>
+</div>
+
+<div class="order-detail-grid">
+    <div class="detail-card">
+        <h3>Customer & Location</h3>
+        <p><strong>Name:</strong> {{ order.customer_name or '—' }}</p>
+        <p><strong>Phone:</strong> <a href="tel:{{ order.phone }}">{{ order.phone }}</a></p>
+        <p><strong>Method:</strong> {{ order.location_method }}</p>
+        {% if order.address_text %}
+        <p><strong>Address:</strong> {{ order.address_text }}</p>
+        {% endif %}
+        {% if order.latitude and order.longitude %}
+        <p><strong>GPS:</strong>
+            {{ '%.6f'|format(order.latitude) }}, {{ '%.6f'|format(order.longitude) }}
+        </p>
+        <p>
+            <a class="btn btn-sm btn-primary" href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank" rel="noopener">
+                Open in Google Maps
+            </a>
+            <a class="btn btn-sm btn-outline" href="https://www.openstreetmap.org/?mlat={{ order.latitude }}&mlon={{ order.longitude }}#map=18/{{ order.latitude }}/{{ order.longitude }}" target="_blank" rel="noopener">
+                OpenStreetMap
+            </a>
+        </p>
+        <div id="adminMap" style="height:260px;border-radius:12px;margin-top:12px;border:1px solid #ddd;"></div>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+        (function(){
+            if (typeof L === 'undefined') {
+                var el = document.getElementById('adminMap');
+                if (el) el.innerHTML = '<p style="padding:16px;color:#c62828;">Map library failed to load. <a href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank">Open in Google Maps</a></p>';
+                return;
+            }
+            var lat = {{ order.latitude }};
+            var lng = {{ order.longitude }};
+            var map = L.map('adminMap').setView([lat, lng], 17);
+            L.tileLayer('{{ map_tiles_url }}', { maxZoom: 19, attribution: '{{ map_attribution }}' }).addTo(map);
+            L.marker([lat, lng]).addTo(map).bindPopup('Delivery point').openPopup();
+        })();
+        </script>
+        {% endif %}
+        {% if order.notes %}
+        <p><strong>Notes:</strong> {{ order.notes }}</p>
+        {% endif %}
+        <p><strong>Created:</strong> {{ order.created_at|addis }}</p>
+        <p><strong>Estimated:</strong> {{ order.estimated_delivery }} hours</p>
+    </div>
+
+
+    <div class="detail-card">
+        <h3>Delivery time (for customer)</h3>
+        <p style="font-size:.9rem;color:#555;">After order is submitted, set how many hours until delivery. Customer sees this on Cart & success page.</p>
+        <form method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="eta">
+            <div class="form-group" style="display:flex;gap:10px;flex-wrap:wrap;">
+                <div>
+                    <label>From (hours)</label>
+                    <input type="number" name="delivery_min_hours" min="1" max="168" placeholder="e.g. 2"
+                           value="{{ order.estimated_delivery.split('-')[0] if order.estimated_delivery and '-' in order.estimated_delivery else '' }}">
+                </div>
+                <div>
+                    <label>To (hours)</label>
+                    <input type="number" name="delivery_max_hours" min="1" max="168" placeholder="e.g. 6"
+                           value="{{ order.estimated_delivery.split('-')[1] if order.estimated_delivery and '-' in order.estimated_delivery else '' }}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Message to customer (optional)</label>
+                <input type="text" name="customer_message" placeholder="e.g. We will deliver this evening">
+            </div>
+            <button type="submit" class="btn btn-primary">Save delivery time</button>
+        </form>
+        {% if order.estimated_delivery %}
+        <p style="margin-top:10px;color:#2e7d32;font-weight:600;">Current estimate: {{ order.estimated_delivery }} hours</p>
+        {% endif %}
+    </div>
+
+    <div class="detail-card">
+        <h3>Status</h3>
+        <form method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <select name="status" class="status-select">
+                    {% for s in ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'] %}
+                    <option value="{{ s }}" {% if order.status == s %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Status</button>
+        </form>
+    </div>
+
+    <div class="detail-card">
+        <h3>Assign Transporter</h3>
+        {% if assigned %}
+        <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:10px;padding:12px;margin-bottom:12px;">
+            <p style="margin:0;color:#2e7d32;font-weight:700;font-size:1.05rem;">✓ ተልኳል (Sent)</p>
+            <p style="margin:6px 0 0;color:#1b5e20;">
+                To: <strong>{{ assigned.name or assigned.phone }}</strong> ({{ assigned.phone }})
+                {% if order.assigned_at %}<br><small>{{ order.assigned_at|addis }}</small>{% endif %}
+            </p>
+        </div>
+        {% else %}
+        <p>Not assigned yet</p>
+        {% endif %}
+        <form method="POST" id="assignForm">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="assign">
+            <div class="form-group">
+                <select name="transporter_id">
+                    <option value="">— Select transporter —</option>
+                    {% for tr in transporters %}
+                    <option value="{{ tr.id }}" {% if order.transporter_id == tr.id %}selected{% endif %}>
+                        {{ tr.name or '—' }} ({{ tr.phone }}) {% if tr.vehicle_info %}· {{ tr.vehicle_info }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary" id="sendBtn">
+                {% if assigned %}Send order to others{% else %}Send order to transporter{% endif %}
+            </button>
+        </form>
+        <p class="hint" style="margin-top:8px;">Sends map, order #, items, payment status to their Transporter portal.</p>
+    </div>
+    <script>
+    document.getElementById('assignForm')?.addEventListener('submit', function() {
+        var b = document.getElementById('sendBtn');
+        if (b) { b.disabled = true; b.textContent = 'Sending...'; }
+    });
+    </script>
+
+    <div class="detail-card">
+        <h3>Payment</h3>
+        <p><strong>Amount:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+        <p><strong>Required:</strong> {{ 'Yes' if order.payment_required else 'No' }}</p>
+        <p><strong>Status:</strong> <span class="badge badge-{{ order.payment_status }}">{{ order.payment_status }}</span></p>
+        {% if order.bank_name_snapshot or bank %}
+        <p><strong>Bank:</strong>
+            {% if order.bank_name_snapshot %}
+                {{ order.bank_name_snapshot }} — {{ order.bank_account_name_snapshot }} / {{ order.bank_account_number_snapshot }}
+                <small style="color:#888;">(at order time)</small>
+            {% else %}
+                {{ bank.bank_name }} — {{ bank.account_name }} / {{ bank.account_number }}
+            {% endif %}
+        </p>
+        {% endif %}
+        {% if order.transaction_id %}
+        <p><strong>Transaction ID:</strong> <code>{{ order.transaction_id }}</code></p>
+        {% endif %}
+        {% if order.receipt_path %}
+        <p><strong>Receipt:</strong><br>
+            <a href="{{ url_for('order_file', oid=order.id, kind='receipt') }}" target="_blank">
+                <img src="{{ url_for('order_file', oid=order.id, kind='receipt') }}" alt="receipt" style="max-width:220px;border-radius:8px;margin-top:6px;">
+            </a>
+        </p>
+        {% endif %}
+        {% if order.payment_required and order.payment_status != 'confirmed' %}
+        <form method="POST" style="margin-top:12px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="payment">
+            <input type="hidden" name="payment_status" value="confirmed">
+            <div class="form-group">
+                <label>Note to customer (optional)</label>
+                <textarea name="payment_note" rows="2">{{ order.payment_note }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Save payment / Confirm</button>
+        </form>
+        <form method="POST" style="margin-top:8px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="payment">
+            <input type="hidden" name="payment_status" value="rejected">
+            <div class="form-group">
+                <label>Rejection reason (shown to customer)</label>
+                <input type="text" name="payment_note" placeholder="e.g. Wrong amount / unclear receipt" value="{{ order.payment_note or '' }}">
+            </div>
+            <button type="submit" class="btn btn-sm btn-outline" style="color:#c62828;border-color:#c62828;">Reject payment</button>
+        </form>
+        {% elif order.payment_required and order.payment_status == 'confirmed' %}
+        <div style="margin-top:12px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:10px;padding:12px;">
+            <p style="margin:0;color:#2e7d32;font-weight:700;font-size:1.1rem;">✓ Confirmed</p>
+            {% if order.payment_note %}<p style="margin:6px 0 0;"><em>{{ order.payment_note }}</em></p>{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+
+        {% if order.total_amount > prepay_max %}
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid #eee;">
+            <h4>COD delivery receipt (over 100,000)</h4>
+            {% if order.delivery_receipt_path %}
+            <p style="color:#2e7d32;font-weight:700;">✓ Transporter sent receipt</p>
+            <p><strong>Collected:</strong> {{ '%.0f'|format(order.cod_amount_collected or 0) }} ብር</p>
+            {% if order.delivery_receipt_note %}<p><strong>Note:</strong> {{ order.delivery_receipt_note }}</p>{% endif %}
+            {% if order.delivery_receipt_at %}<p><small>{{ order.delivery_receipt_at|addis }}</small></p>{% endif %}
+            <a href="{{ url_for('order_file', oid=order.id, kind='cod') }}" target="_blank">
+                <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}" alt="COD receipt"
+                     style="max-width:220px;border-radius:8px;margin-top:6px;border:1px solid #ddd;">
+            </a>
+            {% else %}
+            <p style="color:#e65100;">Waiting for transporter delivery receipt…</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+<div class="detail-card full">
+    <h3>Items</h3>
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Weight</th>
+                <th>Unit Price</th>
+                <th>Qty</th>
+                <th>Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items %}
+            <tr>
+                <td>{{ item.product_name }}</td>
+                <td>{{ item.weight_kg }} kg</td>
+                <td>{{ '%.0f'|format(item.unit_price) }} ብር</td>
+                <td>{{ item.quantity }}</td>
+                <td>{{ '%.0f'|format(item.subtotal) }} ብር</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="4"><strong>Total</strong></td>
+                <td><strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% endblock %}

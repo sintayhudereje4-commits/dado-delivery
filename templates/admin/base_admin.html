@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Admin{% endblock %} - Dado Delivery</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body class="admin-body">
+    <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+            <a href="{{ url_for('admin_dashboard') }}">Dado Admin</a>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('admin_dashboard') }}" class="nav-item {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{{ url_for('admin_products') }}" class="nav-item {% if 'product' in request.endpoint %}active{% endif %}">Products</a>
+            <a href="{{ url_for('admin_orders') }}" class="nav-item {% if 'order' in request.endpoint %}active{% endif %}">Orders</a>
+            <a href="{{ url_for('admin_customers') }}" class="nav-item {% if request.endpoint == 'admin_customers' %}active{% endif %}">Customers</a>
+            <a href="{{ url_for('admin_banks') }}" class="nav-item {% if request.endpoint == 'admin_banks' %}active{% endif %}">Banks</a>
+            <a href="{{ url_for('admin_transporters') }}" class="nav-item {% if request.endpoint == 'admin_transporters' %}active{% endif %}">Transporters</a>
+            <a href="{{ url_for('admin_support') }}" class="nav-item {% if 'support' in request.endpoint %}active{% endif %}">Support</a>
+            <a href="{{ url_for('admin_settings') }}" class="nav-item {% if request.endpoint == 'admin_settings' %}active{% endif %}">Settings</a>
+            <a href="{{ url_for('index') }}" class="nav-item" target="_blank">View Site</a>
+            <form method="POST" action="{{ url_for('admin_logout') }}" class="inline-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="nav-item logout link-btn">Logout</button></form>
+        </nav>
+    </aside>
+    <main class="admin-main">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-container">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+<script>
+(function(){
+  var tok = {{ csrf_token()|tojson }};
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(f){
+    if (!f.querySelector('input[name="csrf_token"]')) {
+      var i = document.createElement('input');
+      i.type = 'hidden'; i.name = 'csrf_token'; i.value = tok;
+      f.appendChild(i);
+    }
+  });
+
+  // Soft auto-refresh only on dashboard & orders (every 30s), and only when tab is visible.
+  // Avoids killing scroll/selection and reduces server load vs previous 3s full reload.
+  var ep = '{{ request.endpoint or "" }}';
+  var softPages = ['admin_dashboard', 'admin_orders', 'admin_support'];
+  if (softPages.indexOf(ep) !== -1) {
+    setInterval(function(){
+      if (document.visibilityState === 'visible') {
+        location.reload();
+      }
+    }, 30000);
+  }
+})();
+</script>
+</body>
+</html>

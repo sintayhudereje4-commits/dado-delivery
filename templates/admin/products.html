@@ -1,0 +1,50 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Products{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Products</h1>
+    <a href="{{ url_for('admin_product_add') }}" class="btn btn-primary">+ Add Product</a>
+</div>
+
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Image</th>
+                <th>Name (AM)</th>
+                <th>Name (EN)</th>
+                <th>Active</th>
+                <th>Variants</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in products %}
+            <tr>
+                <td>
+                    {% if p.image_path %}
+                        <img src="{{ url_for('static', filename=p.image_path) }}" alt="" class="thumb">
+                    {% else %}
+                        <span class="no-img">—</span>
+                    {% endif %}
+                </td>
+                <td>{{ p.name_am }}</td>
+                <td>{{ p.name_en }}</td>
+                <td>{% if p.is_active %}✓{% else %}✗{% endif %}</td>
+                <td>{{ p.variants|length }}</td>
+                <td class="actions">
+                    <a href="{{ url_for('admin_product_edit', pid=p.id) }}" class="btn btn-sm">Edit</a>
+                    <form method="POST" action="{{ url_for('admin_product_delete', pid=p.id) }}" style="display:inline;" onsubmit="return confirm('Delete this product?');">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No products</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

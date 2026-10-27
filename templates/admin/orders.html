@@ -1,0 +1,60 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Orders{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Orders</h1>
+    <form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        {% if current_status %}<input type="hidden" name="status" value="{{ current_status }}">{% endif %}
+        <input type="search" name="q" value="{{ search_q or '' }}" placeholder="Search order # / phone / name…"
+               style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ccc;border-radius:8px;">
+        <button type="submit" class="btn btn-sm btn-primary">Search</button>
+        {% if search_q %}<a href="{{ url_for('admin_orders', status=current_status) if current_status else url_for('admin_orders') }}" class="btn btn-sm btn-outline">Clear</a>{% endif %}
+    </form>
+    <div class="filter-tabs">
+        <a href="{{ url_for('admin_orders', q=search_q) if search_q else url_for('admin_orders') }}" class="{% if not current_status %}active{% endif %}">All</a>
+        <a href="{{ url_for('admin_orders', status='pending', q=search_q) }}" class="{% if current_status == 'pending' %}active{% endif %}">Pending</a>
+        <a href="{{ url_for('admin_orders', status='confirmed', q=search_q) }}" class="{% if current_status == 'confirmed' %}active{% endif %}">Confirmed</a>
+        <a href="{{ url_for('admin_orders', status='preparing', q=search_q) }}" class="{% if current_status == 'preparing' %}active{% endif %}">Preparing</a>
+        <a href="{{ url_for('admin_orders', status='out_for_delivery', q=search_q) }}" class="{% if current_status == 'out_for_delivery' %}active{% endif %}">Out for Delivery</a>
+        <a href="{{ url_for('admin_orders', status='delivered', q=search_q) }}" class="{% if current_status == 'delivered' %}active{% endif %}">Delivered</a>
+        <a href="{{ url_for('admin_orders', status='cancelled', q=search_q) }}" class="{% if current_status == 'cancelled' %}active{% endif %}">Cancelled</a>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Phone</th>
+                <th>Location</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr>
+                <td>{{ o.order_number }}</td>
+                <td>{{ o.phone }}</td>
+                <td>
+                    {% if o.latitude and o.longitude %}
+                        <a href="https://www.google.com/maps?q={{ o.latitude }},{{ o.longitude }}" target="_blank">GPS 📍</a>
+                    {% endif %}
+                    {% if o.address_text %}<br><small>{{ o.address_text[:40] }}{% if o.address_text|length > 40 %}…{% endif %}</small>{% endif %}
+                </td>
+                <td>{{ '%.0f'|format(o.total_amount) }} ብር</td>
+                <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+                <td>{{ o.created_at|addis }}</td>
+                <td><a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm">View</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No orders</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

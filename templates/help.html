@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{% if current_lang == 'am' %}እገዛ{% else %}Help{% endif %} - {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<section class="help-section">
+    <div class="container">
+        <h1>{% if current_lang == 'am' %}እገዛ እና ድጋፍ{% else %}Help & Support{% endif %}</h1>
+        <p class="help-intro">
+            {% if current_lang == 'am' %}
+                በማንኛውም ሰዓት ድጋፍ መጠየቅ ይችላሉ። ከታች ያለውን ቅጽ ይሙሉ ወይም በቀጥታ ይደውሉ።
+            {% else %}
+                You can request support anytime. Fill the form below or contact us directly.
+            {% endif %}
+        </p>
+
+        <div class="help-grid">
+            <div class="help-contact">
+                <h3>{% if current_lang == 'am' %}ያግኙን{% else %}Contact Us{% endif %}</h3>
+                {% if settings.help_phone %}
+                <p>📞 <a href="tel:{{ settings.help_phone }}">{{ settings.help_phone }}</a></p>
+                {% endif %}
+                {% if settings.help_telegram %}
+                <p>💬 <a href="https://t.me/{{ settings.help_telegram|replace('+', '')|replace(' ', '') }}" target="_blank" rel="noopener">Telegram</a></p>
+                {% endif %}
+                {% if settings.help_email %}
+                <p>✉️ <a href="mailto:{{ settings.help_email }}">{{ settings.help_email }}</a></p>
+                {% endif %}
+            </div>
+
+            <div class="help-form-wrap">
+                <h3>{% if current_lang == 'am' %}መልእክት ይላኩ{% else %}Send a Message{% endif %}</h3>
+                <form method="POST" action="{{ url_for('help_page') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="name">{% if current_lang == 'am' %}ስም{% else %}Name{% endif %}</label>
+                        <input type="text" id="name" name="name">
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}</label>
+                        <input type="tel" id="phone" name="phone">
+                    </div>
+                    <div class="form-group">
+                        <label for="message">{% if current_lang == 'am' %}መልእክት *{% else %}Message *{% endif %}</label>
+                        <textarea id="message" name="message" rows="4" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        {% if current_lang == 'am' %}ላክ{% else %}Send{% endif %}
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

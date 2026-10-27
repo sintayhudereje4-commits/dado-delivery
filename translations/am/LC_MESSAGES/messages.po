@@ -1,0 +1,419 @@
+# Amharic translations for Dado Delivery.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the Dado Delivery project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Dado Delivery VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-10-21 08:47+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: am\n"
+"Language-Team: am <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "Please log in to access the admin panel."
+msgstr "የአስተዳዳሪውን ገጽ ለማየት እባክዎ ይግቡ።"
+
+msgid "Invalid security token. Please try again."
+msgstr "የደህንነት ቶከኑ ልክ አይደለም። እባክዎ እንደገና ይሞክሩ።"
+
+msgid "Confirm the bank payment before dispatching or delivering this order"
+msgstr "ትዕዛዙን ከመላክዎ ወይም ከማድረስዎ በፊት የባንክ ክፍያውን ያረጋግጡ"
+
+msgid "Logged out"
+msgstr "ወጥተዋል"
+
+msgid "Receipt sent to admin ✓"
+msgstr "ደረሰኙ ወደ አስተዳዳሪው ተልኳል ✓"
+
+msgid "Logged out — please sign in again"
+msgstr "ወጥተዋል — እባክዎ እንደገና ይግቡ"
+
+msgid "Product hidden (soft-deleted)"
+msgstr "ምርቱ ተደብቋል"
+
+msgid "Request closed"
+msgstr "ጥያቄው ተዘግቷል"
+
+msgid "File too large (max 20 MB)"
+msgstr "ፋይሉ በጣም ትልቅ ነው (ቢበዛ 20 MB)"
+
+msgid "Password must be at least 8 characters"
+msgstr "የይለፍ ቃል ቢያንስ 8 ቁምፊ መሆን አለበት"
+
+msgid "Password must contain at least 1 capital letter"
+msgstr "የይለፍ ቃል ቢያንስ 1 ትልቅ ፊደል (capital) መያዝ አለበት"
+
+msgid "Password must contain at least 1 symbol"
+msgstr "የይለፍ ቃል ቢያንስ 1 ምልክት (symbol) መያዝ አለበት"
+
+msgid "Too many attempts. Please wait a while and try again."
+msgstr "ብዙ ሙከራዎች ተደርገዋል። እባክዎ ትንሽ ጠብቀው እንደገና ይሞክሩ።"
+
+msgid "Cart is empty"
+msgstr "ጋሪው ባዶ ነው"
+
+msgid "Too many items in cart"
+msgstr "በጋሪው ውስጥ ብዙ እቃዎች አሉ"
+
+msgid "Phone number is required"
+msgstr "ስልክ ቁጥር ያስፈልጋል"
+
+msgid "Please enter a valid phone number"
+msgstr "እባክዎ ትክክለኛ ስልክ ቁጥር ያስገቡ"
+
+msgid "Please set your location on the map"
+msgstr "እባክዎ ቦታዎን በካርታው ላይ ያስቀምጡ"
+
+msgid "Your request has been submitted. We will contact you soon."
+msgstr "ጥያቄዎ ተልኳል። በቅርቡ እናገኝዎታለን።"
+
+msgid "Account created successfully"
+msgstr "አካውንት በተሳካ ሁኔታ ተፈጥሯል"
+
+msgid "Invalid email or password"
+msgstr "ኢሜይል ወይም የይለፍ ቃል ልክ አይደለም"
+
+msgid "Invalid phone or password"
+msgstr "ስልክ ወይም የይለፍ ቃል ልክ አይደለም"
+
+msgid "Not assigned to you"
+msgstr "ይህ ትዕዛዝ ለእርስዎ አልተመደበም"
+
+msgid "Status updated"
+msgstr "ሁኔታው ተቀይሯል"
+
+msgid "Receipt upload is only for orders over 100,000 ETB"
+msgstr "ደረሰኝ መላክ ከ 100,000 ብር በላይ ለሆኑ ትዕዛዞች ብቻ ነው"
+
+msgid "This order is already closed"
+msgstr "ይህ ትዕዛዝ ቀድሞ ተዘግቷል"
+
+msgid "Please choose a receipt photo"
+msgstr "እባክዎ የደረሰኝ ፎቶ ይምረጡ"
+
+msgid "Please enter a valid amount collected"
+msgstr "እባክዎ የተሰበሰበውን ትክክለኛ መጠን ያስገቡ"
+
+msgid "Could not save receipt. Use a JPG, PNG, GIF or WEBP photo."
+msgstr "ደረሰኙን ማስቀመጥ አልተቻለም። JPG፣ PNG፣ GIF ወይም WEBP ፎቶ ይጠቀሙ።"
+
+msgid "Invalid username or password"
+msgstr "የተጠቃሚ ስም ወይም የይለፍ ቃል ልክ አይደለም"
+
+msgid "Product added successfully"
+msgstr "ምርቱ በተሳካ ሁኔታ ተጨምሯል"
+
+msgid "Product updated successfully"
+msgstr "ምርቱ በተሳካ ሁኔታ ተስተካክሏል"
+
+msgid "Settings saved ✓"
+msgstr "ቅንብሮች ተቀምጠዋል ✓"
+
+msgid "Invalid cart data"
+msgstr "የጋሪው መረጃ ልክ አይደለም"
+
+msgid "Please set your exact delivery location on the map"
+msgstr "እባክዎ ትክክለኛውን የመላኪያ ቦታ በካርታው ላይ ያስቀምጡ"
+
+msgid "Invalid product in cart"
+msgstr "በጋሪው ውስጥ ልክ ያልሆነ ምርት አለ"
+
+msgid "Invalid quantity"
+msgstr "ብዛቱ ልክ አይደለም"
+
+msgid "Product unavailable"
+msgstr "ምርቱ አይገኝም"
+
+#, python-format
+msgid "Not enough stock: %(name)s"
+msgstr "በቂ ክምችት የለም፦ %(name)s"
+
+msgid "Please select a bank account"
+msgstr "እባክዎ የባንክ አካውንት ይምረጡ"
+
+msgid "Send transaction ID or receipt photo"
+msgstr "ትራንዛክሽን ID ወይም የደረሰኝ ፎቶ ይላኩ"
+
+msgid "Server error. Please try again."
+msgstr "የሰርቨር ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።"
+
+msgid "Please write your message."
+msgstr "እባክዎ መልዕክትዎን ይጻፉ።"
+
+msgid "Your message is too long (max 2000 characters)."
+msgstr "መልዕክትዎ በጣም ረጅም ነው (ቢበዛ 2000 ቁምፊ)።"
+
+msgid "Too many requests. Please try again later."
+msgstr "ብዙ ጥያቄዎች ተልከዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።"
+
+msgid "Email and password are required"
+msgstr "ኢሜይልና የይለፍ ቃል ያስፈልጋሉ"
+
+msgid "Please enter a valid email address"
+msgstr "እባክዎ ትክክለኛ ኢሜይል ያስገቡ"
+
+msgid "Passwords do not match"
+msgstr "የይለፍ ቃሎቹ አይመሳሰሉም"
+
+msgid "Email already registered"
+msgstr "ይህ ኢሜይል ቀድሞ ተመዝግቧል"
+
+msgid "Too many failed attempts. Please try again in 15 minutes."
+msgstr "ብዙ ያልተሳኩ ሙከራዎች ተደርገዋል። እባክዎ ከ 15 ደቂቃ በኋላ እንደገና ይሞክሩ።"
+
+msgid "Logged in successfully"
+msgstr "በተሳካ ሁኔታ ገብተዋል"
+
+msgid "Upload COD receipt before marking delivered"
+msgstr "ተደርሷል ብለው ከመመዝገብዎ በፊት የ COD ደረሰኝ ይላኩ"
+
+msgid "Logged in"
+msgstr "ገብተዋል"
+
+msgid "The image could not be saved. Use a JPG, PNG, GIF or WEBP file."
+msgstr "ምስሉን ማስቀመጥ አልተቻለም። JPG፣ PNG፣ GIF ወይም WEBP ፋይል ይጠቀሙ።"
+
+msgid "Product names are required"
+msgstr "የምርት ስሞች ያስፈልጋሉ"
+
+msgid "Delivery time saved — customer will see it on Cart / order"
+msgstr "የማድረሻ ሰዓት ተቀምጧል — ደንበኛው በጋሪ/ትዕዛዝ ገጹ ላይ ያየዋል"
+
+msgid "Bank account added"
+msgstr "የባንክ አካውንት ተጨምሯል"
+
+msgid "Admin account updated ✓"
+msgstr "የአስተዳዳሪ አካውንት ተስተካክሏል ✓"
+
+msgid "Chat closed"
+msgstr "ውይይቱ ተዘግቷል"
+
+msgid "Page not found"
+msgstr "ገጹ አልተገኘም"
+
+msgid "Access denied"
+msgstr "መግባት አይፈቀድም"
+
+msgid "This action is not allowed here"
+msgstr "ይህ ድርጊት እዚህ አይፈቀድም"
+
+msgid "Something went wrong"
+msgstr "የሆነ ችግር ተፈጥሯል"
+
+msgid "Your session expired. Please reload the page and try again."
+msgstr "ክፍለ ጊዜዎ አልፏል። እባክዎ ገጹን እንደገና ከፍተው ይሞክሩ።"
+
+msgid "Not enough stock to re-open this order"
+msgstr "ይህንን ትዕዛዝ እንደገና ለመክፈት በቂ ክምችት የለም"
+
+msgid "The receipt must be a valid JPG, PNG, GIF or WEBP image"
+msgstr "ደረሰኙ ትክክለኛ JPG፣ PNG፣ GIF ወይም WEBP ምስል መሆን አለበት"
+
+msgid "Message too long"
+msgstr "መልዕክቱ በጣም ረጅም ነው"
+
+msgid "Too many messages. Please wait."
+msgstr "ብዙ መልዕክቶች ተልከዋል። እባክዎ ይጠብቁ።"
+
+msgid "Order sent to transporter"
+msgstr "ትዕዛዙ ወደ አጓጓዡ ተልኳል"
+
+msgid "Transporter removed from order"
+msgstr "አጓጓዡ ከትዕዛዙ ተነስቷል"
+
+msgid "Invalid hours"
+msgstr "ሰዓቱ ልክ አይደለም"
+
+msgid "Order status updated"
+msgstr "የትዕዛዙ ሁኔታ ተቀይሯል"
+
+msgid "Bank name and account number are required"
+msgstr "የባንክ ስምና የአካውንት ቁጥር ያስፈልጋሉ"
+
+msgid "Phone required"
+msgstr "ስልክ ያስፈልጋል"
+
+msgid "Phone already registered"
+msgstr "ይህ ስልክ ቀድሞ ተመዝግቧል"
+
+msgid "Transporter created"
+msgstr "አጓጓዥ ተፈጥሯል"
+
+#, python-format
+msgid "Transporter created. Temporary password (shown once): %(pw)s"
+msgstr "አጓጓዥ ተፈጥሯል። ጊዜያዊ የይለፍ ቃል (አንድ ጊዜ ብቻ ይታያል)፦ %(pw)s"
+
+msgid "Current password is incorrect"
+msgstr "አሁን ያለው የይለፍ ቃል ልክ አይደለም"
+
+msgid "Confirm payment before assigning transporter"
+msgstr "አጓጓዥ ከመመደብዎ በፊት ክፍያውን ያረጋግጡ"
+
+msgid "Transporter not found or inactive"
+msgstr "አጓጓዡ አልተገኘም ወይም ንቁ አይደለም"
+
+msgid "Confirmed"
+msgstr "ተረጋግጧል"
+
+msgid "Payment status updated"
+msgstr "የክፍያ ሁኔታ ተቀይሯል"
+
+msgid "Bank account updated"
+msgstr "የባንክ አካውንት ተስተካክሏል"
+
+msgid "Transporter updated"
+msgstr "አጓጓዥ ተስተካክሏል"
+
+msgid "Username already taken"
+msgstr "ይህ የተጠቃሚ ስም ተይዟል"
+
+msgid "New passwords do not match"
+msgstr "አዲሶቹ የይለፍ ቃሎች አይመሳሰሉም"
+
+msgid "New password must be at least 8 characters"
+msgstr "አዲሱ የይለፍ ቃል ቢያንስ 8 ቁምፊ መሆን አለበት"
+
+msgid "This bank account is used by existing orders, so it was deactivated instead of deleted"
+msgstr "ይህ የባንክ አካውንት በነባር ትዕዛዞች ላይ ስለተመዘገበ ከመሰረዝ ይልቅ ተሰናክሏል"
+
+msgid "Bank account deleted"
+msgstr "የባንክ አካውንት ተሰርዟል"
+
+msgid "This transporter has past orders, so the account was deactivated instead of deleted"
+msgstr "ይህ አጓጓዥ ያለፉ ትዕዛዞች ስላሉት አካውንቱ ከመሰረዝ ይልቅ ተሰናክሏል"
+
+msgid "Transporter deleted"
+msgstr "አጓጓዥ ተሰርዟል"
+
+
+msgid "Please enter a valid Ethiopian phone number (e.g. 0911 234 567)"
+msgstr "እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ (ለምሳሌ 0911 234 567)"
+
+msgid "Delivery location must be inside Ethiopia"
+msgstr "የማድረሻ ቦታው በኢትዮጵያ ውስጥ መሆን አለበት"
+
+msgid "Phone number and password are required"
+msgstr "ስልክ ቁጥር እና የይለፍ ቃል ያስፈልጋሉ"
+
+msgid "Phone number already registered"
+msgstr "ይህ ስልክ ቁጥር ቀድሞ ተመዝግቧል"
+
+msgid "Available weights must have a price greater than 0"
+msgstr "የተመረጡ ክብደቶች ዋጋ ከ 0 በላይ መሆን አለበት"
+
+msgid "Bulk price must be > 0 and less than or equal to regular price"
+msgstr "የጅምላ ዋጋ ከ 0 በላይ እና ከመደበኛ ዋጋ በታች ወይም እኩል መሆን አለበት"
+
+msgid "This transaction ID was already used on order %(num)s"
+msgstr "ይህ የትራንዛክሽን መለያ ቀድሞ በትዕዛዝ %(num)s ላይ ተጠቅሟል"
+
+msgid "This order does not require bank payment"
+msgstr "ይህ ትዕዛዝ የባንክ ክፍያ አይፈልግም"
+
+msgid "Payment rejected — please upload a new receipt or contact support"
+msgstr "ክፍያ ውድቅ ተደርጓል — እባክዎ አዲስ ደረሰኝ ያስገቡ ወይም ድጋፍ ያነጋግሩ"
+
+msgid "Password must be at least 6 characters"
+msgstr "የይለፍ ቃል ቢያንስ 6 ቁምፊ መሆን አለበት"
+
+msgid "Cannot change status from %(old)s to %(new)s"
+msgstr "ሁኔታ ከ %(old)s ወደ %(new)s መቀየር አይቻልም"
+
+msgid "Could not create account. Try logging in, or use a different phone number."
+msgstr "አካውንት መፍጠር አልተቻለም። መግባት ይሞክሩ፣ ወይም ሌላ ስልክ ቁጥር ይጠቀሙ።"
+
+msgid "This order is already closed — receipt cannot be changed"
+msgstr "ይህ ትዕዛዝ ተዘግቷል — ደረሰኝ መቀየር አይቻልም"
+
+msgid "A receipt was already uploaded. Contact admin to change it."
+msgstr "ደረሰኝ ቀድሞ ተጭኗል። ለመቀየር አስተዳዳሪን ያነጋግሩ።"
+
+msgid "Please enter the amount collected"
+msgstr "እባክዎ የተሰበሰበውን መጠን ያስገቡ"
+
+msgid "Receipt sent. Note: collected amount differs from order total."
+msgstr "ደረሰኝ ተልኳል። ማስታወሻ፦ የተሰበሰበው መጠን ከትዕዛዝ ጠቅላላ ጋር አይዛመድም።"
+
+msgid "Current password is incorrect"
+msgstr "አሁን ያለው የይለፍ ቃል ትክክል አይደለም"
+
+msgid "Password changed"
+msgstr "የይለፍ ቃል ተቀይሯል"
+
+msgid "Invalid status"
+msgstr "ልክ ያልሆነ ሁኔታ"
+
+msgid "Customer not found"
+msgstr "ደንበኛ አልተገኘም"
+
+msgid "Customer activated"
+msgstr "ደንበኛ ተነቃቋል"
+
+msgid "Customer blocked"
+msgstr "ደንበኛ ታግዷል"
+
+msgid "Temporary password for %(phone)s: %(pw)s — share once then customer should change it."
+msgstr "ጊዜያዊ የይለፍ ቃል ለ %(phone)s፦ %(pw)s — አንድ ጊዜ ብቻ ያጋሩ ከዚያ ደንበኛው ይቀይር።"
+
+msgid "We sent a verification code to %(phone)s"
+msgstr "የማረጋገጫ ኮድ ወደ %(phone)s ልከናል"
+
+msgid "A new code was sent to %(phone)s"
+msgstr "አዲስ ኮድ ወደ %(phone)s ተልኳል"
+
+msgid "Phone verified. Account created successfully"
+msgstr "ስልክ ተረጋግጧል። አካውንት ተፈጥሯል"
+
+msgid "Please start registration again."
+msgstr "እባክዎ ምዝገባውን እንደገና ይጀምሩ።"
+
+msgid "If this number is registered, a reset code was sent."
+msgstr "ይህ ቁጥር ተመዝግቦ ከሆነ የማስመለሻ ኮድ ተልኳል።"
+
+msgid "Password updated. You can log in now."
+msgstr "የይለፍ ቃል ተዘምኗል። አሁን መግባት ይችላሉ።"
+
+msgid "Password reset by SMS is not available right now. Contact support."
+msgstr "በSMS የይለፍ ቃል ማስመለስ አሁን አይገኝም። ድጋፍ ያነጋግሩ።"
+
+msgid "Please enter the %(n)s-digit code we sent you."
+msgstr "እባክዎ የላክንልዎትን %(n)s አሃዝ ኮድ ያስገቡ።"
+
+msgid "No active code found. Please request a new one."
+msgstr "ንቁ ኮድ አልተገኘም። እባክዎ አዲስ ይጠይቁ።"
+
+msgid "This code has expired. Please request a new one."
+msgstr "ይህ ኮድ ጊዜው አልፎበታል። እባክዎ አዲስ ይጠይቁ።"
+
+msgid "Too many wrong attempts. Please request a new code."
+msgstr "በጣም ብዙ የተሳሳቱ ሙከራዎች። እባክዎ አዲስ ኮድ ይጠይቁ።"
+
+msgid "Wrong code. %(n)s attempts left."
+msgstr "የተሳሳተ ኮድ። %(n)s ሙከራዎች ቀርተዋል።"
+
+msgid "Please wait %(n)s seconds before requesting a new code."
+msgstr "አዲስ ኮድ ከመጠየቅዎ በፊት %(n)s ሰከንድ ይጠብቁ።"
+
+msgid "Too many codes sent to this number. Please try again in an hour."
+msgstr "ለዚህ ቁጥር በጣም ብዙ ኮዶች ተልከዋል። እባክዎ ከአንድ ሰዓት በኋላ ይሞክሩ።"
+
+msgid "Could not send SMS. Please try again later or contact support."
+msgstr "SMS መላክ አልተቻለም። ቆይተው ይሞክሩ ወይም ድጋፍ ያነጋግሩ።"
+
+msgid "Could not send verification code"
+msgstr "የማረጋገጫ ኮድ መላክ አልተቻለም"
+
+msgid "Could not resend code"
+msgstr "ኮድ እንደገና መላክ አልተቻለም"
+
+msgid "Account not found"
+msgstr "አካውንት አልተገኘም"

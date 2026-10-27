@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}{% if current_lang == 'am' %}ጋሪ{% else %}Cart{% endif %} - {{ settings.site_name }}{% endblock %}
+
+{% block content %}
+<section class="cart-section">
+    <div class="container">
+        <h1>{% if current_lang == 'am' %}የእርስዎ ጋሪ{% else %}Your Cart{% endif %}</h1>
+
+        {% if pending_orders %}
+        <div class="pending-orders" style="margin-bottom:28px;">
+            <h2 style="font-size:1.15rem;margin-bottom:12px;">
+                {% if current_lang == 'am' %}የተላኩ ትዕዛዞች{% else %}Submitted orders{% endif %}
+            </h2>
+            {% for o in pending_orders %}
+            <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+                <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;">
+                    <div>
+                        <strong># {{ o.order_number }}</strong>
+                        <span style="margin-left:8px;color:#666;font-size:.9rem;">{{ o.created_at|addis }}</span>
+                        <div style="margin-top:4px;font-size:.9rem;">
+                            {{ '%.0f'|format(o.total_amount) }} ብር
+                            · {% for it in o.items %}{{ it.product_name }} {{ it.weight_kg }}kg×{{ it.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </div>
+                        {% if o.estimated_delivery %}
+                        <div style="margin-top:6px;color:#1565c0;font-weight:600;font-size:.9rem;">
+                            {% if current_lang == 'am' %}የመድረሻ ግምት{% else %}Delivery estimate{% endif %}:
+                            {{ o.estimated_delivery }} {% if current_lang == 'am' %}ሰዓታት{% else %}hours{% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <span style="display:inline-block;padding:6px 14px;border-radius:20px;font-weight:700;font-size:.9rem;
+                        {% if o.status == 'pending' %}background:#fff3e0;color:#e65100;
+                        {% elif o.status == 'confirmed' %}background:#e8f5e9;color:#2e7d32;
+                        {% elif o.status == 'delivered' %}background:#e3f2fd;color:#1565c0;
+                        {% else %}background:#f5f5f5;color:#555;{% endif %}">
+                        {% if o.status == 'pending' %}
+                            {% if current_lang == 'am' %}በመጠባበቅ ላይ{% else %}Pending{% endif %}
+                        {% elif o.status == 'confirmed' %}
+                            {% if current_lang == 'am' %}ተረጋግጧል{% else %}Confirmed{% endif %}
+                        {% elif o.status == 'preparing' %}
+                            {% if current_lang == 'am' %}በዝግጅት ላይ{% else %}Preparing{% endif %}
+                        {% elif o.status == 'out_for_delivery' %}
+                            {% if current_lang == 'am' %}በመንገድ ላይ{% else %}Out for delivery{% endif %}
+                        {% elif o.status == 'delivered' %}
+                            {% if current_lang == 'am' %}ደርሷል{% else %}Delivered{% endif %}
+                        {% elif o.status == 'cancelled' %}
+                            {% if current_lang == 'am' %}ተሰርዟል{% else %}Cancelled{% endif %}
+                        {% else %}
+                            {{ o.status }}
+                        {% endif %}
+                    </span>
+                </div>
+                {% if o.payment_required and o.payment_status == 'pending' %}
+                <p style="margin:8px 0 0;font-size:.85rem;color:#e65100;">
+                    {% if current_lang == 'am' %}ክፍያ በማረጋገጥ ላይ{% else %}Payment pending verification{% endif %}
+                </p>
+                {% elif o.payment_required and o.payment_status == 'rejected' %}
+                <p style="margin:8px 0 0;font-size:.85rem;color:#c62828;">
+                    {% if current_lang == 'am' %}ክፍያ ውድቅ ተደርጓል{% else %}Payment rejected{% endif %}
+                    {% if o.payment_note %} — {{ o.payment_note }}{% endif %}
+                </p>
+                {% endif %}
+                {% if o.payment_note and o.payment_status != 'rejected' %}
+                <p style="margin:8px 0 0;font-size:.9rem;background:#e3f2fd;padding:8px 12px;border-radius:8px;color:#1565c0;">
+                    💬 {{ o.payment_note }}
+                </p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <h2 style="font-size:1.15rem;margin-bottom:12px;">
+            {% if current_lang == 'am' %}አሁን ባለው ጋሪ ውስጥ{% else %}Items in cart{% endif %}
+        </h2>
+        <div id="cartContent">
+            <p class="empty-msg">{% if current_lang == 'am' %}ጋሪዎ ባዶ ነው{% else %}Your cart is empty{% endif %}</p>
+        </div>
+        <div class="cart-actions" id="cartActions" style="display:none;">
+            <a href="{{ url_for('index') }}" class="btn btn-outline">
+                {% if current_lang == 'am' %}ግዢ ይቀጥሉ{% else %}Continue Shopping{% endif %}
+            </a>
+            <a href="{{ url_for('checkout') }}" class="btn btn-primary">
+                {% if current_lang == 'am' %}ወደ ክፍያ{% else %}Proceed to Checkout{% endif %}
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof refreshCartPrices === 'function') {
+        refreshCartPrices(function(){ renderCart(); });
+    } else { renderCart(); }
+});
+
+function renderCart() {
+    const cart = getCart();
+    const container = document.getElementById('cartContent');
+    const actions = document.getElementById('cartActions');
+
+    if (!cart.length) {
+        container.innerHTML = '<p class="empty-msg">{% if current_lang == "am" %}ጋሪዎ ባዶ ነው — አዲስ እቃ ይጨምሩ ወይም ከላይ Pending ትዕዛዞችን ይመልከቱ{% else %}Your cart is empty — add items or see Pending orders above{% endif %}</p>';
+        actions.style.display = 'none';
+        return;
+    }
+
+    let html = '<div class="cart-table-wrap"><table class="cart-table"><thead><tr>';
+    html += '<th>{% if current_lang == "am" %}ምርት{% else %}Product{% endif %}</th>';
+    html += '<th>{% if current_lang == "am" %}ክብደት{% else %}Weight{% endif %}</th>';
+    html += '<th>{% if current_lang == "am" %}ዋጋ{% else %}Price{% endif %}</th>';
+    html += '<th>{% if current_lang == "am" %}ብዛት{% else %}Qty{% endif %}</th>';
+    html += '<th>{% if current_lang == "am" %}ድምር{% else %}Subtotal{% endif %}</th>';
+    html += '<th></th></tr></thead><tbody>';
+
+    let total = 0;
+    cart.forEach((item, idx) => {
+        let unit = item.price;
+        if (item.bulk_price && item.bulk_min && item.quantity >= item.bulk_min) {
+            unit = item.bulk_price;
+        } else if (item.base_price) {
+            unit = item.base_price;
+        }
+        item.price = unit;
+        const sub = unit * item.quantity;
+        total += sub;
+        html += `<tr>
+            <td data-label="Product">${escapeHtml(item.name)}</td>
+            <td data-label="Weight">${escapeHtml(item.weight_kg)} ኪ.ግ</td>
+            <td data-label="Price">${item.price.toFixed(0)} ብር</td>
+            <td data-label="Qty">
+                <div class="qty-control small">
+                    <button type="button" onclick="updateQty(${idx}, -1)">−</button>
+                    <input type="number" class="qty-input" min="1"
+                           ${item.stock != null ? 'max="'+item.stock+'"' : ''}
+                           value="${item.quantity}"
+                           onchange="setQty(${idx}, this.value)"
+                           onclick="this.select()">
+                    <button type="button" onclick="updateQty(${idx}, 1)">+</button>
+                </div>
+            </td>
+            <td data-label="Subtotal">${sub.toFixed(0)} ብር</td>
+            <td><button class="btn-remove" onclick="removeItem(${idx})">×</button></td>
+        </tr>`;
+    });
+
+    saveCart(cart);   // keep the stored prices in line with what is shown
+    html += `</tbody></table></div>
+        <div class="cart-total">
+            <strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${total.toFixed(0)} ብር</strong>
+        </div>`;
+
+    container.innerHTML = html;
+    actions.style.display = 'flex';
+}
+
+function applyQty(idx, qty) {
+    const cart = getCart();
+    if (!cart[idx]) return;
+    qty = parseInt(qty, 10);
+    if (isNaN(qty) || qty < 1) qty = 1;
+    if (cart[idx].stock != null && qty > cart[idx].stock) {
+        qty = cart[idx].stock;
+        showToast('{% if current_lang == "am" %}በቂ ክምችት የለም{% else %}Not enough stock{% endif %}', 'error');
+    }
+    if (qty < 1) qty = 1;
+    cart[idx].quantity = qty;
+    const it = cart[idx];
+    if (it.bulk_price && it.bulk_min && it.quantity >= it.bulk_min) {
+        it.price = it.bulk_price;
+    } else if (it.base_price) {
+        it.price = it.base_price;
+    }
+    saveCart(cart);
+    renderCart();
+    updateCartCount();
+}
+function updateQty(idx, delta) {
+    const cart = getCart();
+    if (!cart[idx]) return;
+    applyQty(idx, cart[idx].quantity + delta);
+}
+function setQty(idx, val) {
+    applyQty(idx, val);
+}
+
+function removeItem(idx) {
+    const cart = getCart();
+    cart.splice(idx, 1);
+    saveCart(cart);
+    renderCart();
+    updateCartCount();
+}
+</script>
+{% endblock %}

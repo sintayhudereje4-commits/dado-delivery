@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Deliveries - Transporter</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <style>
+        body { background:#f0f4f8; margin:0; font-family:Inter,sans-serif; }
+        .top { background:#1565c0; color:#fff; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; }
+        .top a { color:#fff; }
+        .wrap { max-width:720px; margin:0 auto; padding:16px; }
+        .card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+        .card h3 { margin:0 0 8px; font-size:1.05rem; }
+        .meta { font-size:.9rem; color:#555; }
+        .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.75rem; font-weight:600; }
+        .paid { background:#e8f5e9; color:#2e7d32; }
+        .unpaid { background:#fff3e0; color:#e65100; }
+        .btn { display:inline-block; margin-top:10px; background:#1565c0; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:600; font-size:.9rem; }
+        .flash { padding:10px 14px; border-radius:8px; margin-bottom:12px; font-weight:600; }
+        .flash-success { background:#e8f5e9; color:#2e7d32; }
+        .flash-error { background:#ffebee; color:#c62828; }
+        .tabs a { margin-right:8px; text-decoration:none; padding:6px 12px; border-radius:16px; font-size:.9rem; color:#1565c0; border:1px solid #1565c0; }
+        .tabs a.active { background:#1565c0; color:#fff; }
+        .phone-link { color:#1565c0; font-weight:600; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <div>
+            <strong>Transporter</strong><br>
+            <small>{{ transporter.name or transporter.phone }}</small>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <a href="{{ url_for('transporter_change_password') }}" style="color:#fff;font-size:.85rem;">Password</a>
+            <form method="POST" action="{{ url_for('transporter_logout') }}" style="margin:0;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="background:none;border:1px solid rgba(255,255,255,.6);color:#fff;padding:6px 12px;border-radius:8px;font:inherit;cursor:pointer;">Logout</button></form>
+        </div>
+    </div>
+    <div class="wrap">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="tabs" style="margin-bottom:14px;">
+            <a href="{{ url_for('transporter_dashboard', show='active') }}" class="{% if show != 'done' %}active{% endif %}">Active</a>
+            <a href="{{ url_for('transporter_dashboard', show='done') }}" class="{% if show == 'done' %}active{% endif %}">Done</a>
+        </div>
+
+        <h2>{% if show == 'done' %}Completed orders{% else %}Assigned orders{% endif %}</h2>
+        {% for o in orders %}
+        <div class="card">
+            <h3># {{ o.order_number }}</h3>
+            <div class="meta">
+                <p>Status:
+                    <strong>
+                    {% if o.status == 'pending' %}Pending
+                    {% elif o.status == 'confirmed' %}Confirmed
+                    {% elif o.status == 'preparing' %}Preparing
+                    {% elif o.status == 'out_for_delivery' %}Out for delivery
+                    {% elif o.status == 'delivered' %}Delivered
+                    {% elif o.status == 'cancelled' %}Cancelled
+                    {% else %}{{ o.status }}{% endif %}
+                    </strong>
+                </p>
+                <p>Total: {{ '%.0f'|format(o.total_amount) }} ብር</p>
+                {% if o.phone %}
+                <p>Customer: <a class="phone-link" href="tel:{{ o.phone }}">{{ o.phone }}</a>
+                   {% if o.customer_name %} ({{ o.customer_name }}){% endif %}
+                </p>
+                {% endif %}
+                {% if o.address_text %}
+                <p>Address: {{ o.address_text[:80] }}{% if o.address_text|length > 80 %}…{% endif %}</p>
+                {% endif %}
+                <p>
+                    Payment:
+                    {% if o.total_amount > prepay_max %}
+                        <span class="badge unpaid">Collect on delivery (over 100,000)</span>
+                    {% elif o.payment_required %}
+                        {% if o.payment_status == 'confirmed' %}
+                            <span class="badge paid">Bank paid ✓</span>
+                        {% elif o.payment_status == 'rejected' %}
+                            <span class="badge unpaid">Payment rejected</span>
+                        {% else %}
+                            <span class="badge unpaid">Payment pending</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="badge paid">No collection needed (&lt; {{ prepay_min }} ብር)</span>
+                    {% endif %}
+                </p>
+            </div>
+            <a class="btn" href="{{ url_for('transporter_order', oid=o.id) }}">Open order</a>
+        </div>
+        {% else %}
+        <p style="color:#666;">No orders here.</p>
+        {% endfor %}
+    </div>
+    <script>
+    // Soft refresh every 45s when tab visible (new assignments)
+    setInterval(function(){
+      if (document.visibilityState === 'visible') location.reload();
+    }, 45000);
+    </script>
+</body>
+</html>

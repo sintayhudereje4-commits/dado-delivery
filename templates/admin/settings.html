@@ -1,0 +1,179 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<h1>Site Settings</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash flash-{{ category }}" style="margin:12px 0;padding:14px 16px;border-radius:10px;font-weight:600;{% if category=='success' %}background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;{% else %}background:#ffebee;color:#c62828;{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+
+<form method="POST" enctype="multipart/form-data" class="admin-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form_type" value="site">
+    <div class="form-row">
+        <div class="form-group">
+            <label for="site_name">Site Name</label>
+            <input type="text" id="site_name" name="site_name" value="{{ settings.site_name }}">
+        </div>
+        <div class="form-group">
+            <label for="logo">Logo Image</label>
+            <input type="file" id="logo" name="logo" accept="image/*">
+            {% if settings.logo_path %}
+                <p class="current-img">Current: <img src="{{ url_for('static', filename=settings.logo_path) }}" class="thumb" style="max-height:{{ settings.logo_display_height or 80 }}px;"></p>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label for="logo_display_height">Logo display height (px)</label>
+            <input type="number" id="logo_display_height" name="logo_display_height" min="40" max="300" value="{{ settings.logo_display_height or 80 }}">
+            <small>40–300. Larger = bigger logo on site / login pages.</small>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label for="primary_color">Primary Color</label>
+            <input type="color" id="primary_color" name="primary_color" value="{{ settings.primary_color }}">
+        </div>
+        <div class="form-group">
+            <label for="secondary_color">Secondary Color</label>
+            <input type="color" id="secondary_color" name="secondary_color" value="{{ settings.secondary_color }}">
+        </div>
+        <div class="form-group">
+            <label for="font_family">Font Family</label>
+            <input type="text" id="font_family" name="font_family" value="{{ settings.font_family }}">
+        </div>
+    </div>
+
+    <h3>Default Delivery (fallback)</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="delivery_min_hours">Min Hours</label>
+            <input type="number" id="delivery_min_hours" name="delivery_min_hours" value="{{ settings.delivery_min_hours }}" min="1">
+        </div>
+        <div class="form-group">
+            <label for="delivery_max_hours">Max Hours</label>
+            <input type="number" id="delivery_max_hours" name="delivery_max_hours" value="{{ settings.delivery_max_hours }}" min="1">
+        </div>
+    </div>
+    <p class="hint">Per-product delivery times are set on each product. These are site defaults.</p>
+
+    <h3>Help / Support Contacts</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="help_phone">Phone</label>
+            <input type="text" id="help_phone" name="help_phone" value="{{ settings.help_phone }}">
+        </div>
+        <div class="form-group">
+            <label for="help_telegram">Telegram (phone or @username)</label>
+            <input type="text" id="help_telegram" name="help_telegram" value="{{ settings.help_telegram }}">
+        </div>
+        <div class="form-group">
+            <label for="help_email">Email</label>
+            <input type="email" id="help_email" name="help_email" value="{{ settings.help_email }}">
+        </div>
+    </div>
+
+    <h3>Login / Register Page Appearance</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="auth_logo">Login / Register Logo</label>
+            <input type="file" id="auth_logo" name="auth_logo" accept="image/*">
+            {% if settings.auth_logo_path %}
+                <p class="current-img">Current:
+                    <img src="{{ url_for('static', filename=settings.auth_logo_path) }}"
+                         style="height:{{ settings.auth_logo_height or 80 }}px;width:auto;">
+                </p>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label for="auth_logo_height">Login / Register logo height (px)</label>
+            <input type="number" id="auth_logo_height" name="auth_logo_height" min="40" max="300"
+                   value="{{ settings.auth_logo_height or 80 }}">
+            <small>40–300 — for login & register pages only</small>
+        </div>
+        <div class="form-group">
+            <label for="auth_primary_color">Auth Primary Color</label>
+            <input type="color" id="auth_primary_color" name="auth_primary_color" value="{{ settings.auth_primary_color }}">
+        </div>
+        <div class="form-group">
+            <label for="auth_font_family">Auth Font</label>
+            <input type="text" id="auth_font_family" name="auth_font_family" value="{{ settings.auth_font_family }}">
+        </div>
+    </div>
+
+    
+    <h3>Transporter login page</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="transporter_logo">Transporter logo image</label>
+            <input type="file" id="transporter_logo" name="transporter_logo" accept="image/*">
+            {% if settings.transporter_logo_path %}
+                <p class="current-img">Current:
+                    <img src="{{ url_for('static', filename=settings.transporter_logo_path) }}"
+                         style="max-height:{{ settings.transporter_logo_height or 80 }}px;width:auto;">
+                </p>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label for="transporter_logo_height">Transporter logo height (px)</label>
+            <input type="number" id="transporter_logo_height" name="transporter_logo_height"
+                   min="40" max="300" value="{{ settings.transporter_logo_height or 80 }}">
+            <small>40–300</small>
+        </div>
+    </div>
+
+    <h3>Footer Text</h3>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="footer_text_am">Footer (Amharic)</label>
+            <input type="text" id="footer_text_am" name="footer_text_am" value="{{ settings.footer_text_am }}">
+        </div>
+        <div class="form-group">
+            <label for="footer_text_en">Footer (English)</label>
+            <input type="text" id="footer_text_en" name="footer_text_en" value="{{ settings.footer_text_en }}">
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+</form>
+
+<hr style="margin:40px 0;">
+
+<h2>Change Admin Username / Password</h2>
+<form method="POST" class="admin-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form_type" value="account">
+    <div class="form-row">
+        <div class="form-group">
+            <label for="admin_username">Username</label>
+            <input type="text" id="admin_username" name="admin_username" value="{{ current_user.username }}" required>
+        </div>
+        <div class="form-group">
+            <label for="current_password">Current Password *</label>
+            <input type="password" id="current_password" name="current_password" required>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="new_password">New Password (leave blank to keep)</label>
+            <input type="password" id="new_password" name="new_password">
+        </div>
+        <div class="form-group">
+            <label for="new_password2">Confirm New Password</label>
+            <input type="password" id="new_password2" name="new_password2">
+        </div>
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Update Admin Account</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Customers{% endblock %}
+
+{% block content %}
+<h1>Registered Customers</h1>
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Registered</th>
+                <th>Active</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in customers %}
+            <tr>
+                <td>{{ c.id }}</td>
+                <td>{{ c.name or '—' }}</td>
+                <td>{{ c.phone or '—' }}</td>
+                <td>{{ c.created_at|addis }}</td>
+                <td>{% if c.is_active %}<span style="color:#2e7d32;">✓ Active</span>{% else %}<span style="color:#c62828;">✗ Blocked</span>{% endif %}</td>
+                <td style="white-space:nowrap;">
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="id" value="{{ c.id }}">
+                        <input type="hidden" name="action" value="toggle_active">
+                        <button type="submit" class="btn btn-sm btn-outline">
+                            {% if c.is_active %}Block{% else %}Activate{% endif %}
+                        </button>
+                    </form>
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('Reset password for {{ c.phone }}?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="id" value="{{ c.id }}">
+                        <input type="hidden" name="action" value="reset_password">
+                        <button type="submit" class="btn btn-sm btn-outline">Reset PW</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No customers registered yet</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p style="font-size:.85rem;color:#666;margin-top:12px;">
+    Fake emails (…@phone.local) are hidden — login is by phone only.
+    Reset password shows a temporary password once in the green flash message.
+</p>
+{% endblock %}
