@@ -1,28 +1,5 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}Order {{ order.order_number }}
-<div class="detail-card full">
-    <h3>Status history</h3>
-    {% if status_logs %}
-    <table class="admin-table">
-        <thead><tr><th>When</th><th>Who</th><th>Field</th><th>From → To</th><th>Note</th></tr></thead>
-        <tbody>
-        {% for log in status_logs %}
-        <tr>
-            <td>{{ log.created_at|addis }}</td>
-            <td>{{ log.actor }}</td>
-            <td>{{ log.field }}</td>
-            <td>{{ log.old_value }} → {{ log.new_value }}</td>
-            <td>{{ log.note }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p style="color:#888;">No status changes recorded yet.</p>
-    {% endif %}
-</div>
-
-{% endblock %}
+{% block title %}Order {{ order.order_number }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -52,8 +29,8 @@
             </a>
         </p>
         <div id="adminMap" style="height:260px;border-radius:12px;margin-top:12px;border:1px solid #ddd;"></div>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
         <script>
         (function(){
             if (typeof L === 'undefined') {
@@ -87,12 +64,12 @@
                 <div>
                     <label>From (hours)</label>
                     <input type="number" name="delivery_min_hours" min="1" max="168" placeholder="e.g. 2"
-                           value="{{ order.estimated_delivery.split('-')[0] if order.estimated_delivery and '-' in order.estimated_delivery else '' }}">
+                           value="{% if order.estimated_delivery %}{% if '-' in order.estimated_delivery %}{{ order.estimated_delivery.split('-')[0] }}{% else %}{{ order.estimated_delivery }}{% endif %}{% endif %}">
                 </div>
                 <div>
                     <label>To (hours)</label>
                     <input type="number" name="delivery_max_hours" min="1" max="168" placeholder="e.g. 6"
-                           value="{{ order.estimated_delivery.split('-')[1] if order.estimated_delivery and '-' in order.estimated_delivery else '' }}">
+                           value="{% if order.estimated_delivery and '-' in order.estimated_delivery %}{{ order.estimated_delivery.split('-')[1] }}{% endif %}">
                 </div>
             </div>
             <div class="form-group">
@@ -112,8 +89,17 @@
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <select name="status" class="status-select">
-                    {% for s in ['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'] %}
-                    <option value="{{ s }}" {% if order.status == s %}selected{% endif %}>{{ s }}</option>
+                    {% set allowed = {
+                        'pending': ['confirmed', 'cancelled'],
+                        'confirmed': ['preparing', 'out_for_delivery', 'cancelled'],
+                        'preparing': ['out_for_delivery', 'cancelled'],
+                        'out_for_delivery': ['delivered', 'cancelled'],
+                        'delivered': [],
+                        'cancelled': []
+                    } %}
+                    <option value="{{ order.status }}" selected>{{ order.status }}</option>
+                    {% for s in allowed.get(order.status, []) %}
+                    <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -214,25 +200,24 @@
         {% endif %}
     </div>
 </div>
+{% if order.total_amount > prepay_max %}
 
-
-        {% if order.total_amount > prepay_max %}
-        <div style="margin-top:16px;padding-top:12px;border-top:1px solid #eee;">
-            <h4>COD delivery receipt (over 100,000)</h4>
-            {% if order.delivery_receipt_path %}
-            <p style="color:#2e7d32;font-weight:700;">✓ Transporter sent receipt</p>
-            <p><strong>Collected:</strong> {{ '%.0f'|format(order.cod_amount_collected or 0) }} ብር</p>
-            {% if order.delivery_receipt_note %}<p><strong>Note:</strong> {{ order.delivery_receipt_note }}</p>{% endif %}
-            {% if order.delivery_receipt_at %}<p><small>{{ order.delivery_receipt_at|addis }}</small></p>{% endif %}
-            <a href="{{ url_for('order_file', oid=order.id, kind='cod') }}" target="_blank">
-                <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}" alt="COD receipt"
-                     style="max-width:220px;border-radius:8px;margin-top:6px;border:1px solid #ddd;">
-            </a>
-            {% else %}
-            <p style="color:#e65100;">Waiting for transporter delivery receipt…</p>
-            {% endif %}
-        </div>
+    <div class="detail-card">
+        <h3>COD delivery receipt (over 100,000)</h3>
+        {% if order.delivery_receipt_path %}
+        <p style="color:#2e7d32;font-weight:700;">✓ Transporter sent receipt</p>
+        <p><strong>Collected:</strong> {{ '%.0f'|format(order.cod_amount_collected or 0) }} ብር</p>
+        {% if order.delivery_receipt_note %}<p><strong>Note:</strong> {{ order.delivery_receipt_note }}</p>{% endif %}
+        {% if order.delivery_receipt_at %}<p><small>{{ order.delivery_receipt_at|addis }}</small></p>{% endif %}
+        <a href="{{ url_for('order_file', oid=order.id, kind='cod') }}" target="_blank" rel="noopener">
+            <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}" alt="COD receipt"
+                 style="max-width:220px;border-radius:8px;margin-top:6px;border:1px solid #ddd;">
+        </a>
+        {% else %}
+        <p style="color:#e65100;">Waiting for transporter delivery receipt…</p>
         {% endif %}
+    </div>
+{% endif %}
 
 <div class="detail-card full">
     <h3>Items</h3>
@@ -265,4 +250,27 @@
         </tfoot>
     </table>
 </div>
+
+<div class="detail-card full">
+    <h3>Status history</h3>
+    {% if status_logs %}
+    <table class="admin-table">
+        <thead><tr><th>When</th><th>Who</th><th>Field</th><th>From → To</th><th>Note</th></tr></thead>
+        <tbody>
+        {% for log in status_logs %}
+        <tr>
+            <td>{{ log.created_at|addis }}</td>
+            <td>{{ log.actor }}</td>
+            <td>{{ log.field }}</td>
+            <td>{{ log.old_value }} → {{ log.new_value }}</td>
+            <td>{{ log.note }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#888;">No status changes recorded yet.</p>
+    {% endif %}
+</div>
+
 {% endblock %}

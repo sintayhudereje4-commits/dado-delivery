@@ -35,9 +35,10 @@
             </button>
         </form>
         <div class="resend">
+        <p id="resendCountdown" style="font-size:.85rem;color:#666;margin-bottom:6px;"></p>
             <form method="POST" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="action" value="resend">
+                <input type="hidden" name="action" value="resend" id="resendAction">
                 <button type="submit" style="background:none;border:none;color:#1565c0;cursor:pointer;font:inherit;text-decoration:underline;">
                     {% if current_lang == 'am' %}ኮድ እንደገና ላክ{% else %}Resend code{% endif %}
                 </button>
@@ -45,4 +46,41 @@
         </div>
     </div>
 </div>
+
+<script>
+(function(){
+  var KEY = 'dado_otp_resend_at';
+  var WAIT = 60; // seconds
+  var el = document.getElementById('resendCountdown');
+  var btn = document.querySelector('button[form] , form .resend button, .resend button');
+  // find resend submit button
+  var form = document.querySelector('.resend form');
+  var submit = form ? form.querySelector('button[type="submit"], button:not([type])') : null;
+  function tick(){
+    var until = parseInt(localStorage.getItem(KEY) || '0', 10) || 0;
+    var left = Math.ceil((until - Date.now()) / 1000);
+    if (left > 0) {
+      if (el) el.textContent = (document.documentElement.lang || '').indexOf('am') === 0
+        ? ('እንደገና ለመላክ ' + left + ' ሰከንድ ይጠብቁ')
+        : ('Resend available in ' + left + 's');
+      if (submit) { submit.disabled = true; submit.style.opacity = '0.5'; }
+      setTimeout(tick, 500);
+    } else {
+      if (el) el.textContent = '';
+      if (submit) { submit.disabled = false; submit.style.opacity = '1'; }
+    }
+  }
+  if (form) {
+    form.addEventListener('submit', function(){
+      localStorage.setItem(KEY, String(Date.now() + WAIT * 1000));
+    });
+  }
+  // if page just loaded after resend flash, start cooldown
+  if (!localStorage.getItem(KEY)) {
+    localStorage.setItem(KEY, String(Date.now() + WAIT * 1000));
+  }
+  tick();
+})();
+</script>
+
 {% endblock %}

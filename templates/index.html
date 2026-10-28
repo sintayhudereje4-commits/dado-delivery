@@ -13,6 +13,22 @@
     <div class="container">
         <h2 class="section-title">{% if current_lang == 'am' %}ምርቶቻችን{% else %}Our Products{% endif %}</h2>
         <div class="products-grid">
+            
+        {% if categories %}
+        <div class="category-tabs" style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;">
+            <a href="{{ url_for('index') }}"
+               class="btn btn-sm {% if not active_category %}btn-primary{% else %}btn-outline{% endif %}">
+                {% if current_lang == 'am' %}ሁሉም{% else %}All{% endif %}
+            </a>
+            {% for c in categories %}
+            <a href="{{ url_for('index', category=c.id) }}"
+               class="btn btn-sm {% if active_category == c.id %}btn-primary{% else %}btn-outline{% endif %}">
+                {% if current_lang == 'am' %}{{ c.name_am }}{% else %}{{ c.name_en }}{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
             {% for product in products %}
             <article class="product-card">
                 <a href="{{ url_for('product_detail', product_id=product.id) }}" class="product-link">

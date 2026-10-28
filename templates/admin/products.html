@@ -12,6 +12,7 @@
         <thead>
             <tr>
                 <th>Image</th>
+                <th>Category</th>
                 <th>Name (AM)</th>
                 <th>Name (EN)</th>
                 <th>Active</th>
@@ -29,6 +30,7 @@
                         <span class="no-img">—</span>
                     {% endif %}
                 </td>
+                <td>{% if p.category %}{{ p.category.name_en }}{% else %}—{% endif %}</td>
                 <td>{{ p.name_am }}</td>
                 <td>{{ p.name_en }}</td>
                 <td>{% if p.is_active %}✓{% else %}✗{% endif %}</td>
@@ -42,7 +44,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="6">No products</td></tr>
+            <tr><td colspan="7">No products</td></tr>
             {% endfor %}
         </tbody>
     </table>

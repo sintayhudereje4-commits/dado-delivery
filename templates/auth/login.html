@@ -3,7 +3,7 @@
 {% block extra_head %}
 <style>
 .auth-wrap { max-width: 420px; margin: 32px auto; background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-.auth-wrap h1 { color: {{ settings.auth_primary_color }}; font-family: {{ settings.auth_font_family }}; margin-bottom: 16px; }
+.auth-wrap h1 { color: {{ settings.auth_primary_color }}; font-family: {{ settings.auth_font_family|css_font }}; margin-bottom: 16px; }
 .auth-wrap .btn-primary { background: {{ settings.auth_primary_color }}; }
 .auth-logo { text-align: center; margin-bottom: 12px; }
 .auth-logo img { height: {{ settings.auth_logo_height or 80 }}px; max-height: {{ settings.auth_logo_height or 80 }}px; width: auto; max-width: 100%; object-fit: contain; }
@@ -22,6 +22,7 @@
         {% endif %}
         <h1>{% if current_lang == 'am' %}ወደ አካውንትዎ ይግቡ{% else %}Login to your account{% endif %}</h1>
         <form method="POST">
+            {% if request.args.get("next") %}<input type="hidden" name="next" value="{{ request.args.get("next") }}">{% endif %}
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>

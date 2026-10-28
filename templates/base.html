@@ -13,7 +13,7 @@
         :root {
             --primary: {{ settings.primary_color }};
             --secondary: {{ settings.secondary_color }};
-            --font-main: {{ settings.font_family }};
+            --font-main: {{ settings.font_family|css_font }};
         }
     </style>
     {% block extra_head %}{% endblock %}
@@ -116,7 +116,7 @@
             <a href="tel:{{ settings.help_phone }}">📞 {{ settings.help_phone }}</a>
             {% endif %}
             {% if settings.help_telegram %}
-            <a href="https://t.me/{{ settings.help_telegram|replace('+', '')|replace(' ', '')|replace('@', '') }}" target="_blank" rel="noopener">Telegram</a>
+            <a href="{% set _tg = settings.help_telegram|replace(' ', '') %}{% if _tg.startswith('@') %}https://t.me/{{ _tg[1:] }}{% elif _tg[:1].isdigit() or _tg.startswith('+') %}https://t.me/{{ _tg if _tg.startswith('+') else '+' + _tg }}{% else %}https://t.me/{{ _tg|replace('@','') }}{% endif %}" target="_blank" rel="noopener">Telegram</a>
             {% endif %}
             <a href="{{ url_for('help_page') }}">{% if current_lang == 'am' %}ሙሉ ገጽ{% else %}Full page{% endif %}</a>
         </div>

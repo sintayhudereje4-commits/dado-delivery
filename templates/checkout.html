@@ -2,7 +2,7 @@
 {% block title %}{% if current_lang == 'am' %}ክፍያ{% else %}Checkout{% endif %} - {{ settings.site_name }}{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   #mapPicker { height: 280px; width: 100%; border-radius: 12px; margin-top: 12px; border: 2px solid #e0e0e0; z-index: 1; }
   .map-hint { font-size: 0.85rem; color: #555; margin-top: 8px; }
@@ -134,7 +134,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const PREPAY_MIN = {{ prepay_min }};

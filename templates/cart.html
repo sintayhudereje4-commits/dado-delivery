@@ -59,6 +59,20 @@
                     {% if current_lang == 'am' %}ክፍያ ውድቅ ተደርጓል{% else %}Payment rejected{% endif %}
                     {% if o.payment_note %} — {{ o.payment_note }}{% endif %}
                 </p>
+                <form method="POST" action="{{ url_for('resubmit_payment', order_number=o.order_number) }}"
+                      enctype="multipart/form-data" style="margin-top:10px;padding:12px;background:#fff3e0;border-radius:10px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <p style="margin:0 0 8px;font-weight:600;font-size:.9rem;">
+                        {% if current_lang == 'am' %}አዲስ ደረሰኝ / ትራንዛክሽን ID ይላኩ{% else %}Send new receipt / transaction ID{% endif %}
+                    </p>
+                    <input type="text" name="transaction_id" placeholder="Transaction ID"
+                           style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">
+                    <input type="file" name="receipt" accept="image/*"
+                           style="width:100%;margin-bottom:8px;">
+                    <button type="submit" class="btn btn-primary" style="width:100%;">
+                        {% if current_lang == 'am' %}እንደገና ላክ{% else %}Resubmit payment{% endif %}
+                    </button>
+                </form>
                 {% endif %}
                 {% if o.payment_note and o.payment_status != 'rejected' %}
                 <p style="margin:8px 0 0;font-size:.9rem;background:#e3f2fd;padding:8px 12px;border-radius:8px;color:#1565c0;">

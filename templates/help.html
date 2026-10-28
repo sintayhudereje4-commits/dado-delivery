@@ -20,7 +20,7 @@
                 <p>📞 <a href="tel:{{ settings.help_phone }}">{{ settings.help_phone }}</a></p>
                 {% endif %}
                 {% if settings.help_telegram %}
-                <p>💬 <a href="https://t.me/{{ settings.help_telegram|replace('+', '')|replace(' ', '') }}" target="_blank" rel="noopener">Telegram</a></p>
+                <p>💬 <a href="{% set _tg = settings.help_telegram|replace(' ', '') %}{% if _tg.startswith('@') %}https://t.me/{{ _tg[1:] }}{% elif _tg[:1].isdigit() or _tg.startswith('+') %}https://t.me/{{ _tg if _tg.startswith('+') else '+' + _tg }}{% else %}https://t.me/{{ _tg|replace('@','') }}{% endif %}" target="_blank" rel="noopener">Telegram</a></p>
                 {% endif %}
                 {% if settings.help_email %}
                 <p>✉️ <a href="mailto:{{ settings.help_email }}">{{ settings.help_email }}</a></p>

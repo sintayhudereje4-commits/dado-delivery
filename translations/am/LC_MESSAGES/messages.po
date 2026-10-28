@@ -417,3 +417,48 @@ msgstr "ኮድ እንደገና መላክ አልተቻለም"
 
 msgid "Account not found"
 msgstr "አካውንት አልተገኘም"
+
+msgid "Payment proof sent. We will review it shortly."
+msgstr "የክፍያ ማስረጃ ተልኳል። በቅርቡ እናረጋግጣለን።"
+
+msgid "Mark the order out for delivery before uploading the COD receipt"
+msgstr "COD ደረሰኝ ከመጫንዎ በፊት ትዕዛዙን Out for delivery ያድርጉት"
+
+msgid "Cannot change payment status on a closed order"
+msgstr "በተዘጋ ትዕዛዝ ላይ የክፍያ ሁኔታ መቀየር አይቻልም"
+
+msgid "Collected amount (%(a)s) differs from order total (%(t)s). Enter the correct amount or contact admin."
+msgstr "የተሰበሰበው መጠን (%(a)s) ከትዕዛዝ ጠቅላላ (%(t)s) ጋር አይዛመድም። ትክክለኛውን ያስገቡ ወይም አስተዳዳሪን ያነጋግሩ።"
+
+msgid "New payment proof submitted — waiting for admin review"
+msgstr "አዲስ የክፍያ ማስረጃ ተልኳል — አስተዳዳሪ እየገመገመ ነው"
+
+msgid "Payment can only be re-submitted when pending or rejected"
+msgstr "ክፍያ እንደገና የሚላከው pending ወይም rejected ሲሆን ብቻ ነው"
+
+msgid "Cannot change status from %(old)s to %(new)s"
+msgstr "ከ %(old)s ወደ %(new)s ሁኔታ መቀየር አይቻልም"
+
+msgid "Status updated"
+msgstr "ሁኔታ ተዘምኗል"
+
+msgid "Upload COD receipt before marking delivered"
+msgstr "ደርሷል ከማለትዎ በፊት COD ደረሰኝ ይጫኑ"
+
+msgid "Password must be at least 8 characters"
+msgstr "የይለፍ ቃል ቢያንስ 8 ቁምፊ መሆን አለበት"
+
+msgid "Password must include at least 1 capital letter (A-Z)"
+msgstr "የይለፍ ቃል ቢያንስ 1 አቢይ ሆሄ (A-Z) መያዝ አለበት"
+
+msgid "Password must include at least 1 number"
+msgstr "የይለፍ ቃል ቢያንስ 1 ቁጥር መያዝ አለበት"
+
+msgid "Password must include at least 1 symbol (!@#$)"
+msgstr "የይለፍ ቃል ቢያንስ 1 ምልክት (!@#$) መያዝ አለበት"
+
+msgid "Profile updated"
+msgstr "መገለጫ ተዘምኗል"
+
+msgid "Name is required"
+msgstr "ስም ያስፈልጋል"

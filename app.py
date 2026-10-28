@@ -32,6 +32,7 @@ from flask_babel import Babel, gettext as _, lazy_gettext as _l
 from sqlalchemy import or_, inspect as sa_inspect
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
+from markupsafe import Markup
 try:
     from PIL import Image, ImageOps
     Image.MAX_IMAGE_PIXELS = 50_000_000  # reject decompression bombs
@@ -402,6 +403,10 @@ def create_and_send_otp(phone, purpose='register'):
     if recent >= OTP_MAX_PER_PHONE_HOUR:
         return False, _('Too many codes sent to this number. Please try again in an hour.')
 
+    # Limit SMS cost: max 20 OTP sends per IP per hour across all numbers
+    if rate_exceeded('otp_ip', 20, 3600):
+        return False, _('Too many verification requests. Please try again later.')
+
     # Resend cooldown: last code must be older than OTP_RESEND_SECONDS
     last = (PhoneOtp.query.filter_by(phone=phone, purpose=purpose)
             .order_by(PhoneOtp.created_at.desc()).first())
@@ -443,7 +448,7 @@ def verify_otp(phone, code, purpose='register'):
     row = (PhoneOtp.query.filter_by(phone=phone, purpose=purpose, consumed_at=None)
            .order_by(PhoneOtp.created_at.desc()).first())
     if not row:
-        return False, _('No active code found. Please request a new one.')
+        return False, _('Invalid or expired code. Please try again or request a new one.')
     if row.expires_at and row.expires_at < utcnow():
         return False, _('This code has expired. Please request a new one.')
     if (row.attempts or 0) >= (row.max_attempts or 5):
@@ -453,7 +458,7 @@ def verify_otp(phone, code, purpose='register'):
         row.attempts = (row.attempts or 0) + 1
         db.session.commit()
         left = (row.max_attempts or 5) - row.attempts
-        return False, _('Wrong code. %(n)s attempts left.', n=max(0, left))
+        return False, _('Invalid or expired code. Please try again or request a new one.')
 
     row.consumed_at = utcnow()
     db.session.commit()
@@ -485,6 +490,12 @@ def clean_color(val, default):
 def clean_font(val, default):
     val = (val or '').strip()
     return val if FONT_RE.match(val) else default
+
+
+@app.template_filter('css_font')
+def css_font_filter(val):
+    """Safe font-family for inline CSS (bypass HTML-escape of quotes)."""
+    return Markup(clean_font(val, 'sans-serif'))
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +563,20 @@ def security_headers(resp):
     # strict-origin-when-cross-origin keeps Referer for same-origin and sends origin
     # only on HTTPS→HTTPS cross-origin (needed by some tile servers like OSM).
     resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    # HSTS only on HTTPS responses
+    if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+        resp.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    # Baseline CSP (allows Leaflet CDN + inline styles used by templates)
+    resp.headers.setdefault(
+        'Content-Security-Policy',
+        "default-src 'self'; "
+        "img-src 'self' data: blob: https://*.arcgisonline.com https://*.tile.openstreetmap.org https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "connect-src 'self'; "
+        "frame-ancestors 'self'"
+    )
     return resp
 
 
@@ -606,8 +631,19 @@ class BankAccount(db.Model):
     sort_order = db.Column(db.Integer, default=0)
 
 
+class Category(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name_am = db.Column(db.String(120), nullable=False, default='')
+    name_en = db.Column(db.String(120), nullable=False, default='')
+    sort_order = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    products = db.relationship('Product', backref='category', lazy=True)
+
+
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
     name_am = db.Column(db.String(120), nullable=False)
     name_en = db.Column(db.String(120), nullable=False)
     description_am = db.Column(db.Text, default='')
@@ -925,9 +961,15 @@ def generate_order_number():
 
 
 def validate_customer_password(password):
-    """At least 6 characters. Uppercase/symbol not required (hard on Amharic keyboards)."""
+    """Min 6 chars, 1 uppercase, 1 digit, 1 special character."""
     if not password or len(password) < 6:
         return False, _('Password must be at least 6 characters')
+    if not any(c.isupper() for c in password):
+        return False, _('Password must include at least 1 capital letter (A-Z)')
+    if not any(c.isdigit() for c in password):
+        return False, _('Password must include at least 1 number')
+    if not any((not c.isalnum() and not c.isspace()) for c in password):
+        return False, _('Password must include at least 1 symbol (!@#$)')
     return True, ''
 
 
@@ -992,6 +1034,23 @@ def login_succeeded(scope, ident):
     db.session.commit()
 
 
+
+def attach_guest_orders_to_customer(customer):
+    """Link past guest checkouts (same phone) to this customer account."""
+    if not customer or not customer.phone:
+        return
+    phones = {customer.phone}
+    # also try denormalized local form
+    p = customer.phone
+    if p.startswith('+251') and len(p) >= 13:
+        phones.add('0' + p[4:])
+    Order.query.filter(
+        Order.customer_id.is_(None),
+        Order.phone.in_(list(phones)),
+    ).update({Order.customer_id: customer.id}, synchronize_session=False)
+    db.session.commit()
+
+
 def start_fresh_session(**values):
     """New session after login (prevents session fixation); keeps language & pending orders."""
     keep = {k: session[k] for k in ('lang', 'pending_orders', '_csrf') if k in session}
@@ -1034,6 +1093,26 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
+
+
+def release_stale_unpaid_orders(max_age_hours=48):
+    """Cancel old unpaid/rejected pending orders so reserved stock is released."""
+    cutoff = utcnow() - timedelta(hours=max_age_hours)
+    stale = (Order.query.filter(
+        Order.status == 'pending',
+        Order.payment_required == True,
+        Order.payment_status.in_(['pending', 'rejected']),
+        Order.created_at < cutoff,
+        Order.stock_released == False,
+    ).limit(50).all())
+    for order in stale:
+        err = change_order_status(order, 'cancelled', actor='system', note='auto-cancel unpaid after timeout')
+        if not err:
+            order.payment_note = (order.payment_note or '') + ' [Auto-cancelled: payment not confirmed in time]'
+    if stale:
+        db.session.commit()
+    return len(stale)
 
 
 def log_order_change(order, field, old_value, new_value, actor='', note=''):
@@ -1152,8 +1231,13 @@ def set_language(lang):
 
 @app.route('/')
 def index():
-    products = Product.query.filter_by(is_active=True).order_by(Product.sort_order, Product.id).all()
-    return render_template('index.html', products=products)
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order, Category.id).all()
+    cat_id = safe_int(request.args.get('category'), None)
+    q = Product.query.filter_by(is_active=True)
+    if cat_id:
+        q = q.filter_by(category_id=cat_id)
+    products = q.order_by(Product.sort_order, Product.id).all()
+    return render_template('index.html', products=products, categories=categories, active_category=cat_id)
 
 
 @app.route('/product/<int:product_id>')
@@ -1166,6 +1250,10 @@ def product_detail(product_id):
 
 @app.route('/cart')
 def cart():
+    try:
+        release_stale_unpaid_orders()
+    except Exception:
+        db.session.rollback()
     pending_orders = []
     nums = session.get('pending_orders', [])
     if nums:
@@ -1244,7 +1332,7 @@ def checkout():
     customer_name = (data.get('customer_name') or '').strip()[:120]
     address_text = (data.get('address_text') or '').strip()[:500]
     notes = (data.get('notes') or '').strip()[:1000]
-    transaction_id = (data.get('transaction_id') or '').strip()[:120]
+    transaction_id = ' '.join((data.get('transaction_id') or '').split()).upper()[:120]
     location_method = (data.get('location_method') or 'manual').strip()
     if location_method not in ('gps', 'manual'):
         location_method = 'manual'
@@ -1258,9 +1346,10 @@ def checkout():
         return _json_error(_('Delivery location must be inside Ethiopia'))
     # Reject default centre / unconfirmed pin. Client must send location_confirmed=1 only after user action.
     loc_ok = str(data.get('location_confirmed') or '').strip().lower() in ('1', 'true', 'yes')
-    if location_method == 'manual' and not loc_ok:
+    # Require explicit confirmation for both GPS and manual (prevents silent default pin)
+    if not loc_ok:
         return _json_error(_('Please set your exact delivery location on the map'))
-    if abs(lat_f - 9.03) < 0.0005 and abs(lng_f - 38.74) < 0.0005 and not loc_ok:
+    if abs(lat_f - 9.03) < 0.0005 and abs(lng_f - 38.74) < 0.0005:
         return _json_error(_('Please set your exact delivery location on the map'))
 
     # Merge quantities by variant_id
@@ -1336,7 +1425,8 @@ def checkout():
         if transaction_id:
             dup = Order.query.filter(
                 Order.transaction_id == transaction_id,
-                Order.payment_status.in_(['pending', 'confirmed'])
+                Order.status != 'cancelled',
+                Order.payment_status.in_(['pending', 'confirmed']),
             ).first()
             if dup:
                 return _json_error(
@@ -1396,7 +1486,12 @@ def checkout():
                 order_id=order.id,
                 product_id=oi['product'].id,
                 variant_id=oi['variant'].id,
-                product_name=oi['product'].name_am if lang == 'am' else oi['product'].name_en,
+                product_name=(
+                    f"{oi['product'].name_am or ''} / {oi['product'].name_en or ''}".strip(' /')
+                    if (oi['product'].name_am and oi['product'].name_en
+                        and oi['product'].name_am != oi['product'].name_en)
+                    else (oi['product'].name_am if lang == 'am' else (oi['product'].name_en or oi['product'].name_am))
+                ),
                 weight_kg=oi['variant'].weight_kg,
                 unit_price=oi['unit'],
                 quantity=oi['qty'],
@@ -1414,6 +1509,7 @@ def checkout():
     pending = session.get('pending_orders', [])
     pending.insert(0, order.order_number)
     session['pending_orders'] = pending[:20]
+    session.permanent = True  # keep guest pending_orders across browser restarts (14 days)
     if idem:
         session['checkout_idem'] = {'key': idem, 'order_number': order.order_number}
     return jsonify({
@@ -1519,9 +1615,13 @@ def ai_help_reply(user_message, settings=None):
     def am_en(am, en):
         return am if lang == 'am' else en
 
-    # greetings
-    greet_keys = ['hello', 'hi', 'hey', 'ሰላም', 'ሀይ', 'ሃይ', 'ጤና', 'እንደምን', 'good morning', 'good evening']
-    if any(k in msg or k in raw for k in greet_keys) and len(msg) < 40:
+    # greetings — whole words only (avoid matching "hi" inside "which" / "shipping")
+    import re as _re
+    greet_pat = _re.compile(
+        r'(^|\s)(hello|hi|hey|ሰላም|ሀይ|ሃይ|ጤና|እንደምን|good\s+morning|good\s+evening)(\s|$|[!?.])',
+        _re.I
+    )
+    if greet_pat.search(msg) and len(msg) < 40:
         return am_en(
             f'ሰላም! እኔ የ {site} AI ረዳት ነኝ። Admin ሳይኖር መረጃ እሰጣለሁ።\n'
             'ስለ ምርት፣ ዋጋ፣ ማድረሻ፣ ክፍያ ወይም ትዕዛዝ ይጠይቁኝ።',
@@ -1603,14 +1703,13 @@ def ai_help_reply(user_message, settings=None):
     # account
     if any(k in msg or k in raw for k in ['register', 'login', 'account', 'ተመዝገብ', 'ግባ', 'አካውንት', 'password', 'የይለፍ']):
         return am_en(
-            'አካውንት፦ Register በ email። የይለፍ ቃል ቢያንስ 8 ቁምፊ፣ 1 አቢይ ሆሄ፣ 1 ምልክት።\n'
-            'ከተመዘገቡ በኋላ ከማንኛውም መሣሪያ Login ማድረግ ይችላሉ።',
-            'Account: Register with email. Password needs 8+ chars, 1 capital, 1 symbol.\n'
-            'After register you can Login from any device.'
-        )
+            'አካውንት፦ በስልክ ቁጥር ይመዝገቡ። የይለፍ ቃል ቢያንስ 6 ቁምፊ፣ 1 አቢይ ሆሄ፣ 1 ቁጥር፣ 1 ምልክት።\n'
+            'ከተመዘገቡ በኋላ ከማንኛውም መሣሪያ Login ማድረግ ይችላሉ። የይለፍ ቃል ከረሱ “የይለፍ ቃል ረሳሁ” ይጠቀሙ።',
+            'Account: Register with your phone number. Password needs 6+ chars, 1 capital, 1 number, 1 symbol.\n'
+            'After registering you can log in from any device. Use Forgot password if needed.')
 
-    # thanks
-    if any(k in msg or k in raw for k in ['thanks', 'thank', 'አመሰግን', 'እሺ', 'ok', 'okay']):
+    # thanks — whole words only
+    if _re.search(r'(^|\s)(thanks|thank|thank you|okay|ok|አመሰግን|እሺ)(\s|$|[!?.])', msg, _re.I) and len(msg) < 30:
         return am_en('በደስታ! ሌላ ጥያቄ ካለዎት ይጻፉ።', 'You are welcome! Ask if you need anything else.')
 
     # default
@@ -1641,7 +1740,7 @@ def chat_get_messages():
         'id': m.id,
         'sender': m.sender,
         'message': m.message,
-        'created_at': m.created_at.strftime('%H:%M')
+        'created_at': (to_addis(m.created_at).strftime('%H:%M') if m.created_at else '')
     } for m in chat.messages]
     return jsonify({'messages': msgs, 'status': chat.status})
 
@@ -1705,7 +1804,7 @@ def chat_send():
             'id': ai_msg.id,
             'sender': 'ai',
             'message': ai_msg.message,
-            'created_at': (ai_msg.created_at or utcnow()).strftime('%H:%M')
+            'created_at': to_addis(ai_msg.created_at or utcnow()).strftime('%H:%M')
         }
     chat.updated_at = utcnow()
     db.session.commit()
@@ -1717,7 +1816,7 @@ def chat_send():
             'id': msg.id,
             'sender': 'visitor',
             'message': msg.message,
-            'created_at': msg.created_at.strftime('%H:%M') if msg.created_at else ''
+            'created_at': (to_addis(msg.created_at).strftime('%H:%M') if msg.created_at else '')
         },
         'ai_message': ai_payload
     })
@@ -1786,6 +1885,7 @@ def register():
             return redirect(url_for('register'))
         start_fresh_session(customer_id=c.id)
         session.permanent = True
+        attach_guest_orders_to_customer(c)
         flash(_('Account created successfully'), 'success')
         return redirect(url_for('index'))
     return render_template('auth/register.html', otp_on=otp_enabled())
@@ -1841,6 +1941,7 @@ def register_verify():
         session.pop('pending_register', None)
         start_fresh_session(customer_id=c.id)
         session.permanent = True
+        attach_guest_orders_to_customer(c)
         flash(_('Phone verified. Account created successfully'), 'success')
         return redirect(url_for('index'))
 
@@ -1900,16 +2001,17 @@ def reset_password():
         code = request.form.get('code', '').strip()
         password = request.form.get('password', '')
         password2 = request.form.get('password2', '')
-        ok, err = verify_otp(phone, code, purpose='reset')
-        if not ok:
-            flash(err, 'error')
-            return redirect(url_for('reset_password'))
+        # Validate password BEFORE consuming the OTP
         if password != password2:
             flash(_('Passwords do not match'), 'error')
             return redirect(url_for('reset_password'))
         ok_pw, msg = validate_customer_password(password)
         if not ok_pw:
             flash(msg, 'error')
+            return redirect(url_for('reset_password'))
+        ok, err = verify_otp(phone, code, purpose='reset')
+        if not ok:
+            flash(err, 'error')
             return redirect(url_for('reset_password'))
         c = Customer.query.filter_by(phone=phone).first()
         if not c:
@@ -1945,9 +2047,13 @@ def customer_login():
             if c.phone != phone and normalize_phone(c.phone) == phone:
                 c.phone = phone
                 db.session.commit()
+            attach_guest_orders_to_customer(c)
             start_fresh_session(customer_id=c.id)
             session.permanent = True
             flash(_('Logged in successfully'), 'success')
+            nxt = request.args.get('next') or request.form.get('next')
+            if nxt and is_safe_path(nxt):
+                return redirect(nxt)
             return redirect(url_for('index'))
         login_failed('customer', phone)
         flash(_('Invalid phone or password'), 'error')
@@ -1962,11 +2068,40 @@ def customer_logout():
     return redirect(url_for('index'))
 
 
-@app.route('/account')
+@app.route('/account', methods=['GET', 'POST'])
 def account():
     c = get_current_customer()
     if not c:
         return redirect(url_for('customer_login'))
+    if request.method == 'POST':
+        action = request.form.get('action') or ''
+        if action == 'update_profile':
+            name = (request.form.get('name') or '').strip()[:120]
+            if name:
+                c.name = name
+                db.session.commit()
+                flash(_('Profile updated'), 'success')
+            else:
+                flash(_('Name is required'), 'error')
+            return redirect(url_for('account'))
+        if action == 'change_password':
+            current = request.form.get('current_password') or ''
+            new_pw = request.form.get('new_password') or ''
+            new_pw2 = request.form.get('new_password2') or ''
+            if not c.check_password(current):
+                flash(_('Current password is incorrect'), 'error')
+                return redirect(url_for('account'))
+            if new_pw != new_pw2:
+                flash(_('Passwords do not match'), 'error')
+                return redirect(url_for('account'))
+            ok, msg = validate_customer_password(new_pw)
+            if not ok:
+                flash(msg, 'error')
+                return redirect(url_for('account'))
+            c.set_password(new_pw)
+            db.session.commit()
+            flash(_('Password changed'), 'success')
+            return redirect(url_for('account'))
     orders = Order.query.filter_by(customer_id=c.id).order_by(Order.created_at.desc()).limit(20).all()
     return render_template('auth/account.html', customer=c, orders=orders)
 
@@ -1974,6 +2109,65 @@ def account():
 # ---------------------------------------------------------------------------
 # Transporter portal
 # ---------------------------------------------------------------------------
+
+@app.route('/order/<order_number>/resubmit-payment', methods=['POST'])
+def resubmit_payment(order_number):
+    """Customer re-uploads receipt / transaction ID after admin rejected payment."""
+    order = Order.query.filter_by(order_number=order_number).first_or_404()
+    # Auth: session pending list, or owning customer
+    allowed = session.get('pending_orders') or []
+    cust = get_current_customer()
+    ok = order.order_number in allowed
+    if cust and order.customer_id == cust.id:
+        ok = True
+    if not ok:
+        abort(403)
+    if not order.payment_required:
+        flash(_('This order does not require bank payment'), 'error')
+        return redirect(url_for('cart'))
+    if order.payment_status not in ('rejected', 'pending'):
+        flash(_('Payment can only be re-submitted when pending or rejected'), 'error')
+        return redirect(url_for('cart'))
+    if order.status in ('cancelled', 'delivered'):
+        flash(_('This order is already closed'), 'error')
+        return redirect(url_for('cart'))
+
+    transaction_id = ' '.join((request.form.get('transaction_id') or '').split()).upper()[:120]
+    upload = request.files.get('receipt')
+    new_path = ''
+    if upload and upload.filename:
+        new_path = save_image(upload, 'receipt', private=True)
+        if not new_path:
+            flash(_('The receipt must be a valid JPG, PNG, GIF or WEBP image'), 'error')
+            return redirect(url_for('cart'))
+    if not transaction_id and not new_path and not order.receipt_path:
+        flash(_('Send transaction ID or receipt photo'), 'error')
+        return redirect(url_for('cart'))
+    if transaction_id:
+        # duplicate check among other active orders
+        dup = (Order.query.filter(
+            Order.transaction_id == transaction_id,
+            Order.id != order.id,
+            Order.status != 'cancelled',
+            Order.payment_status.in_(['pending', 'confirmed']),
+        ).first())
+        if dup:
+            flash(_('This transaction ID was already used on order %(n)s', n=dup.order_number), 'error')
+            return redirect(url_for('cart'))
+        order.transaction_id = transaction_id
+    if new_path:
+        order.receipt_path = new_path
+    order.payment_status = 'pending'
+    order.payment_note = _('New payment proof submitted — waiting for admin review')
+    try:
+        log_order_change(order, 'payment_status', 'rejected', 'pending', actor='customer', note='resubmit')
+    except Exception:
+        pass
+    db.session.commit()
+    flash(_('Payment proof sent. We will review it shortly.'), 'success')
+    return redirect(url_for('cart'))
+
+
 @app.route('/transporter/login', methods=['GET', 'POST'])
 def transporter_login():
     if get_current_transporter():
@@ -2101,6 +2295,10 @@ def transporter_delivery_receipt(oid):
     if order.status in ('cancelled', 'delivered'):
         flash(_('This order is already closed — receipt cannot be changed'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
+    # COD receipt only when already out for delivery (avoids stuck photo + failed status)
+    if order.status != 'out_for_delivery':
+        flash(_('Mark the order out for delivery before uploading the COD receipt'), 'error')
+        return redirect(url_for('transporter_order', oid=oid))
     if order.delivery_receipt_path:
         flash(_('A receipt was already uploaded. Contact admin to change it.'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
@@ -2115,35 +2313,30 @@ def transporter_delivery_receipt(oid):
     if amt is None or not math.isfinite(amt) or amt <= 0 or amt > 1e10:
         flash(_('Please enter a valid amount collected'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
-    # Soft warning if amount differs significantly from order total
     expected = float(order.total_amount or 0)
+    note_extra = ''
     if expected > 0 and abs(amt - expected) > max(1.0, expected * 0.02):
-        # Allow but flag in note
-        note_extra = f' [Amount differs from order total {expected:.0f}]'
-    else:
-        note_extra = ''
+        # Allow shortfall/overage but flag clearly for admin
+        note_extra = f' [Amount differs: collected {amt:.0f} vs order {expected:.0f}]'
     path_saved = save_image(request.files['receipt'], 'cod_receipt', private=True)
     if not path_saved:
         flash(_('Could not save receipt. Use a JPG, PNG, GIF or WEBP photo.'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
+    # Save receipt only — do NOT auto-mark delivered (admin reviews amount / photo)
     order.delivery_receipt_path = path_saved
     note = (request.form.get('note', '') or '').strip()[:200]
     order.delivery_receipt_note = (note + note_extra).strip()[:255]
     order.cod_amount_collected = amt
     order.delivery_receipt_at = utcnow()
-    # Move to delivered through the proper status helper
-    actor = f'transporter:{(t.phone or t.name or str(t.id))}'
-    err = change_order_status(order, 'delivered', actor=actor, note='COD receipt')
-    if err:
-        # Receipt is saved even if status transition fails (e.g. payment not confirmed)
-        db.session.commit()
-        flash(err, 'error')
-        return redirect(url_for('transporter_order', oid=oid))
+    try:
+        log_order_change(order, 'cod_receipt', '', f'collected={amt:.0f}', actor=f'transporter:{(t.phone or t.name or str(t.id))}', note=note_extra or 'COD receipt uploaded')
+    except Exception:
+        pass
     db.session.commit()
     if note_extra:
-        flash(_('Receipt sent. Note: collected amount differs from order total.'), 'success')
+        flash(_('Receipt sent. Amount differs from total — admin will review. Then mark delivered.'), 'success')
     else:
-        flash(_('Receipt sent to admin ✓'), 'success')
+        flash(_('Receipt sent to admin ✓ You can now mark delivered.'), 'success')
     return redirect(url_for('transporter_order', oid=oid))
 
 
@@ -2186,6 +2379,10 @@ def admin_logout():
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
+    try:
+        release_stale_unpaid_orders()
+    except Exception:
+        db.session.rollback()
     total_orders = Order.query.count()
     pending_orders = Order.query.filter_by(status='pending').count()
     total_products = Product.query.count()
@@ -2206,11 +2403,56 @@ def admin_dashboard():
                            recent_orders=recent_orders)
 
 
+
+@app.route('/admin/categories', methods=['GET', 'POST'])
+@admin_required
+def admin_categories():
+    if request.method == 'POST':
+        action = request.form.get('action') or 'add'
+        if action == 'add':
+            name_am = (request.form.get('name_am') or '').strip()[:120]
+            name_en = (request.form.get('name_en') or '').strip()[:120]
+            if not name_am or not name_en:
+                flash(_('Category names are required'), 'error')
+                return redirect(url_for('admin_categories'))
+            db.session.add(Category(
+                name_am=name_am,
+                name_en=name_en,
+                sort_order=form_int('sort_order', 0, -10000, 10000),
+                is_active=bool(request.form.get('is_active', 1)),
+            ))
+            db.session.commit()
+            flash(_('Category added'), 'success')
+        elif action == 'edit':
+            cat = db.get_or_404(Category, form_int('id', 0, 0, 10**9))
+            cat.name_am = (request.form.get('name_am') or '').strip()[:120] or cat.name_am
+            cat.name_en = (request.form.get('name_en') or '').strip()[:120] or cat.name_en
+            cat.sort_order = form_int('sort_order', cat.sort_order or 0, -10000, 10000)
+            cat.is_active = bool(request.form.get('is_active'))
+            db.session.commit()
+            flash(_('Category updated'), 'success')
+        elif action == 'delete':
+            cat = db.get_or_404(Category, form_int('id', 0, 0, 10**9))
+            if Product.query.filter_by(category_id=cat.id).first():
+                # Keep products: just deactivate category
+                cat.is_active = False
+                db.session.commit()
+                flash(_('Category has products — deactivated instead of deleted'), 'success')
+            else:
+                db.session.delete(cat)
+                db.session.commit()
+                flash(_('Category deleted'), 'success')
+        return redirect(url_for('admin_categories'))
+    categories = Category.query.order_by(Category.sort_order, Category.id).all()
+    return render_template('admin/categories.html', categories=categories)
+
+
 @app.route('/admin/products')
 @admin_required
 def admin_products():
     products = Product.query.order_by(Product.sort_order, Product.id).all()
-    return render_template('admin/products.html', products=products)
+    categories = Category.query.order_by(Category.sort_order, Category.id).all()
+    return render_template('admin/products.html', products=products, categories=categories)
 
 
 def _read_delivery_hours():
@@ -2226,7 +2468,10 @@ def _save_product_image(product):
     if upload and upload.filename:
         img_path = save_image(upload, 'product')
         if img_path:
+            old = product.image_path
             product.image_path = img_path
+            if old and old != img_path:
+                delete_stored_file(old)
         else:
             flash(_('The image could not be saved. Use a JPG, PNG, GIF or WEBP file.'), 'error')
 
@@ -2242,7 +2487,11 @@ def admin_product_add():
             return redirect(url_for('admin_product_add'))
 
         d_min, d_max = _read_delivery_hours()
+        cat_id = form_int('category_id', 0, 0, 10**9) or None
+        if cat_id and not db.session.get(Category, cat_id):
+            cat_id = None
         product = Product(
+            category_id=cat_id,
             name_am=name_am,
             name_en=name_en,
             description_am=request.form.get('description_am', ''),
@@ -2282,7 +2531,7 @@ def admin_product_add():
         flash(_('Product added successfully'), 'success')
         return redirect(url_for('admin_products'))
 
-    return render_template('admin/product_form.html', product=None, weights=WEIGHTS)
+    return render_template('admin/product_form.html', product=None, weights=WEIGHTS, categories=Category.query.order_by(Category.sort_order, Category.id).all())
 
 
 @app.route('/admin/products/<int:pid>/edit', methods=['GET', 'POST'])
@@ -2296,6 +2545,10 @@ def admin_product_edit(pid):
             flash(_('Product names are required'), 'error')
             return redirect(url_for('admin_product_edit', pid=pid))
         d_min, d_max = _read_delivery_hours()
+        cat_id = form_int('category_id', 0, 0, 10**9) or None
+        if cat_id and not db.session.get(Category, cat_id):
+            cat_id = None
+        product.category_id = cat_id
         product.name_am = name_am
         product.name_en = name_en
         product.description_am = request.form.get('description_am', '')
@@ -2320,8 +2573,7 @@ def admin_product_edit(pid):
             variant.price = price
             variant.bulk_price = bulk
             variant.bulk_min_qty = form_int(f'bulk_min_{w}', 10, 1, 100000)
-            # Only update stock if the form field was actually submitted (avoids overwriting concurrent sales)
-            if f'stock_{w}' in request.form:
+            if request.form.get(f'update_stock_{w}') and f'stock_{w}' in request.form:
                 variant.stock = form_int(f'stock_{w}', 0, 0, 10000000)
             variant.is_available = is_avail
 
@@ -2329,7 +2581,7 @@ def admin_product_edit(pid):
         flash(_('Product updated successfully'), 'success')
         return redirect(url_for('admin_products'))
 
-    return render_template('admin/product_form.html', product=product, weights=WEIGHTS)
+    return render_template('admin/product_form.html', product=product, weights=WEIGHTS, categories=Category.query.order_by(Category.sort_order, Category.id).all())
 
 
 @app.route('/admin/products/<int:pid>/delete', methods=['POST'])
@@ -2399,7 +2651,10 @@ def admin_order_detail(oid):
                 order.transporter_id = tr.id
                 order.assigned_at = utcnow()
                 if order.status == 'pending':
-                    order.status = 'confirmed'
+                    err = change_order_status(order, 'confirmed', actor='admin', note='assigned transporter')
+                    if err:
+                        flash(err, 'error')
+                        return back
             else:
                 if order.status == 'delivered':
                     flash(_('This order is already closed'), 'error')
@@ -2416,17 +2671,29 @@ def admin_order_detail(oid):
                 if not order.payment_required:
                     flash(_('This order does not require bank payment'), 'error')
                     return back
+                if order.status in ('cancelled', 'delivered'):
+                    flash(_('Cannot change payment status on a closed order'), 'error')
+                    return back
+                old_pay = order.payment_status
                 order.payment_status = pay
                 if note:
                     order.payment_note = note
-                elif pay == 'rejected' and not order.payment_note:
+                elif pay == 'confirmed':
+                    order.payment_note = _('Payment confirmed')
+                elif pay == 'rejected':
                     order.payment_note = _('Payment rejected — please upload a new receipt or contact support')
                 if pay == 'confirmed' and order.status == 'pending':
-                    order.status = 'confirmed'
-                # When rejected, clear old proof so customer can re-submit
+                    err = change_order_status(order, 'confirmed', actor='admin', note='payment confirmed')
+                    if err:
+                        flash(err, 'error')
+                        return back
                 if pay == 'rejected':
                     order.transaction_id = ''
-                    # Keep receipt_path for admin audit, but mark so customer can re-upload
+                    # Keep old receipt_path for audit; customer resubmit will replace it
+                try:
+                    log_order_change(order, 'payment_status', old_pay, pay, actor='admin', note=note or '')
+                except Exception:
+                    pass
                 db.session.commit()
                 flash(_('Confirmed') if pay == 'confirmed' else _('Payment status updated'), 'success')
             return back
@@ -2446,7 +2713,7 @@ def admin_order_detail(oid):
                 order.estimated_delivery = str(dmax_i)
             msg = request.form.get('customer_message', '').strip()[:1000]
             if msg:
-                order.notes = ((order.notes or '') + ('\n' if order.notes else '') + '[Admin]: ' + msg).strip()
+                order.payment_note = msg  # visible to customer on cart / account / success
             db.session.commit()
             flash(_('Delivery time saved — customer will see it on Cart / order'), 'success')
             return back
@@ -2519,7 +2786,8 @@ def admin_transporters():
     if request.method == 'POST':
         action = request.form.get('action', 'add')
         if action == 'add':
-            phone = request.form.get('phone', '').strip()
+            raw_phone = request.form.get('phone', '').strip()
+            phone = normalize_phone(raw_phone) or raw_phone
             if not phone:
                 flash(_('Phone required'), 'error')
                 return redirect(url_for('admin_transporters'))
@@ -2528,6 +2796,10 @@ def admin_transporters():
                 return redirect(url_for('admin_transporters'))
             if Transporter.query.filter_by(phone=phone).first():
                 flash(_('Phone already registered'), 'error')
+                return redirect(url_for('admin_transporters'))
+            typed_pw_early = request.form.get('password', '').strip()
+            if typed_pw_early and len(typed_pw_early) < 6:
+                flash(_('Password must be at least 6 characters'), 'error')
                 return redirect(url_for('admin_transporters'))
             t = Transporter(
                 name=request.form.get('name', '').strip()[:120],
@@ -2547,7 +2819,8 @@ def admin_transporters():
         elif action in ('edit', 'delete'):
             t = db.get_or_404(Transporter, safe_int(request.form.get('id'), 0))
             if action == 'edit':
-                phone = request.form.get('phone', '').strip()
+                raw_phone = request.form.get('phone', '').strip()
+                phone = normalize_phone(raw_phone) or raw_phone
                 if not valid_phone(phone):
                     flash(_('Please enter a valid phone number'), 'error')
                     return redirect(url_for('admin_transporters'))
@@ -2561,6 +2834,9 @@ def admin_transporters():
                 t.is_active = bool(request.form.get('is_active'))
                 new_pw = request.form.get('password', '').strip()
                 if new_pw:
+                    if len(new_pw) < 6:
+                        flash(_('Password must be at least 6 characters'), 'error')
+                        return redirect(url_for('admin_transporters'))
                     t.set_password(new_pw)
                 db.session.commit()
                 flash(_('Transporter updated'), 'success')
@@ -2645,7 +2921,10 @@ def admin_settings():
             if upload and upload.filename:
                 p = save_image(upload, prefix)
                 if p:
+                    old_path = getattr(settings, attr, '') or ''
                     setattr(settings, attr, p)
+                    if old_path and old_path != p:
+                        delete_stored_file(old_path)
                 else:
                     flash(_('The image could not be saved. Use a JPG, PNG, GIF or WEBP file.'), 'error')
 
@@ -2837,6 +3116,13 @@ def init_db():
             db.session.add(settings)
             db.session.commit()
 
+        # Safety: never expose placeholder bank numbers to customers
+        for bad in BankAccount.query.filter(BankAccount.account_number.ilike('%REPLACE%')).all():
+            if bad.is_active:
+                bad.is_active = False
+                print('Deactivated placeholder bank account id=', bad.id)
+        db.session.commit()
+
         if BankAccount.query.count() == 0:
             # Sample entry only. It is INACTIVE so customers are never told to pay into a fake account;
             # edit it with the real details in Admin > Banks and tick "active".
@@ -2848,6 +3134,17 @@ def init_db():
             ))
             db.session.commit()
             print('Sample (inactive) bank account created - set the real details in Admin > Banks')
+
+        
+        if Category.query.count() == 0:
+            for i, (am, en) in enumerate([
+                ('እህል', 'Grains'),
+                ('ዘይት', 'Oil'),
+                ('ሸቀጦች', 'Groceries'),
+            ]):
+                db.session.add(Category(name_am=am, name_en=en, sort_order=i, is_active=True))
+            db.session.commit()
+            print('Default categories created: Grains, Oil, Groceries')
 
         if Product.query.count() == 0:
             products_data = [
@@ -2933,6 +3230,8 @@ def server_error(e):
 @app.route('/api/cart/prices', methods=['POST'])
 def api_cart_prices():
     """Refresh cart line prices from current DB (daily price updates)."""
+    if rate_exceeded('cart_prices', 120, 3600):
+        return jsonify({'error': 'rate_limited'}), 429
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}

@@ -149,3 +149,10 @@ SMS_PROVIDER=console   # or: twilio | africastalking | http
 ```
 
 `SMS_PROVIDER=console` prints the code in the server logs (good for testing on free tier).
+
+
+## Persistence warning (Render free tier)
+
+SQLite, `static/uploads`, and `instance/private_uploads` live on the server disk.
+On **Render free**, the filesystem is **ephemeral** — redeploys wipe local files.
+Use **PostgreSQL** (`DATABASE_URL`) and external object storage for receipts/images in production.

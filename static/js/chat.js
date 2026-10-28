@@ -75,13 +75,18 @@
     }
 
     function renderMessages(list) {
-        // Keep the first system bubble if present
+        // Full redraw: temporarily allow all messages (ignore lastMsgId filter)
         const system = messagesEl.querySelector('.chat-bubble.system');
         messagesEl.innerHTML = '';
         if (system) messagesEl.appendChild(system);
+        var saved = lastMsgId;
+        lastMsgId = 0;
         (list || []).forEach(function (m) {
             appendBubble(m, false);
         });
+        // Keep the highest id we have seen (either from this list or previous polls)
+        lastMsgId = Math.max(saved, lastMsgId);
+        persistLastMsgId();
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
@@ -119,7 +124,9 @@
 
     function startPolling(intervalMs) {
         stopPolling();
-        pollTimer = setInterval(pollMessages, intervalMs || 4000);
+        pollTimer = setInterval(function () {
+            if (document.visibilityState === 'visible') pollMessages();
+        }, intervalMs || 8000);
     }
 
     function stopPolling() {
@@ -198,6 +205,7 @@
 
     // Background poll for badge when closed — only if user has an active chat session
     setInterval(function () {
+        if (document.visibilityState !== 'visible') return;
         if (widget.classList.contains('is-open')) return;
         if (!getSessionKey()) return;
         pollMessages();

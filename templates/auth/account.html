@@ -5,12 +5,55 @@
     <a href="{{ url_for('index') }}" style="display:inline-block;margin-bottom:12px;color:#555;text-decoration:none;">← {% if current_lang == 'am' %}ተመለስ{% else %}Back{% endif %}</a>
     <h1>{% if current_lang == 'am' %}የእኔ አካውንት{% else %}My Account{% endif %}</h1>
     <div style="background:#fff;padding:20px;border-radius:12px;margin:16px 0;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
-        <p><strong>{% if current_lang == 'am' %}ስም{% else %}Name{% endif %}:</strong> {{ customer.name or '—' }}</p>
         <p><strong>{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}:</strong> {{ customer.phone or '—' }}</p>
+        <form method="POST" style="margin-top:12px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="update_profile">
+            <label style="font-size:.9rem;">{% if current_lang == 'am' %}ስም{% else %}Name{% endif %}</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+                <input type="text" name="name" value="{{ customer.name or '' }}" required maxlength="120"
+                       style="flex:1;min-width:160px;padding:8px;border:1px solid #ccc;border-radius:8px;">
+                <button type="submit" class="btn btn-outline">{% if current_lang == 'am' %}አስቀምጥ{% else %}Save{% endif %}</button>
+            </div>
+        </form>
         {% if customer.email and not customer.email.endswith('@phone.local') %}
         <p><strong>Email:</strong> {{ customer.email }}</p>
         {% endif %}
     </div>
+
+    <div style="background:#fff;padding:20px;border-radius:12px;margin:16px 0;box-shadow:0 2px 12px rgba(0,0,0,0.06);max-width:420px;">
+        <h2 style="font-size:1.1rem;margin:0 0 12px;">{% if current_lang == 'am' %}የይለፍ ቃል ቀይር{% else %}Change password{% endif %}</h2>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="change_password">
+            <div class="form-group" style="margin-bottom:10px;">
+                <label>{% if current_lang == 'am' %}አሁን ያለው የይለፍ ቃል{% else %}Current password{% endif %}</label>
+                <input type="password" name="current_password" required autocomplete="current-password"
+                       style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">
+            </div>
+            <div class="form-group" style="margin-bottom:10px;">
+                <label>{% if current_lang == 'am' %}አዲስ የይለፍ ቃል (ቢያንስ 6 ቁምፊ + አቢይ + ቁጥር + ምልክት){% else %}New password (min 6 + capital + number + symbol){% endif %}</label>
+                <input type="password" name="new_password" required minlength="6" autocomplete="new-password"
+                       style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>{% if current_lang == 'am' %}አዲሱን ድገም{% else %}Confirm new password{% endif %}</label>
+                <input type="password" name="new_password2" required minlength="6" autocomplete="new-password"
+                       style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">
+            </div>
+            <button type="submit" class="btn btn-primary">
+                {% if current_lang == 'am' %}አስቀምጥ{% else %}Save password{% endif %}
+            </button>
+        </form>
+        <p style="margin:12px 0 0;font-size:.85rem;color:#666;">
+            {% if current_lang == 'am' %}
+            የይለፍ ቃል ከረሱት ከ Login ገጽ «የይለፍ ቃል ረሳሁ» ይጠቀሙ (SMS ኮድ)።
+            {% else %}
+            Forgot your password? Use “Forgot password” on the login page (SMS code).
+            {% endif %}
+        </p>
+    </div>
+
     <h2>{% if current_lang == 'am' %}ትዕዛዞቼ{% else %}My Orders{% endif %}</h2>
     {% if orders %}
     <div class="table-wrap">
@@ -23,7 +66,7 @@
             <tbody>
             {% for o in orders %}
             <tr>
-                <td>{{ o.order_number }}</td>
+                <td><a href="{{ url_for('cart') }}">{{ o.order_number }}</a></td>
                 <td>{{ o.created_at|addis('%Y-%m-%d') }}</td>
                 <td>{{ '%.0f'|format(o.total_amount) }} ብር</td>
                 <td>
@@ -42,6 +85,7 @@
                     {% else %}
                         {{ o.status }}
                     {% endif %}
+                    {% if o.payment_required %}<div style="font-size:.8rem;color:#666;">pay: {{ o.payment_status }}</div>{% endif %}
                     {% if o.payment_note %}
                     <div style="font-size:.85rem;color:#1565c0;margin-top:4px;">💬 {{ o.payment_note }}</div>
                     {% endif %}

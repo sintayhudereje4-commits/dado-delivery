@@ -57,6 +57,12 @@ function addToCart(item) {
     const existing = cart.find(c => c.variant_id === item.variant_id);
     if (existing) {
         existing.quantity += item.quantity;
+        // Re-apply bulk pricing if thresholds are known on the line
+        if (existing.bulk_price != null && existing.bulk_min && existing.quantity >= existing.bulk_min) {
+            existing.price = existing.bulk_price;
+        } else if (existing.base_price != null) {
+            existing.price = existing.base_price;
+        }
     } else {
         cart.push(item);
     }
@@ -153,8 +159,12 @@ function refreshCartPrices(cb) {
             if (s.name) item.name = s.name;
             if (typeof s.stock === 'number') {
                 item.stock = s.stock;
+                if (s.stock <= 0) {
+                    removed++;
+                    return; // drop out-of-stock lines from cart
+                }
                 if (item.quantity > s.stock) {
-                    item.quantity = Math.max(1, s.stock);
+                    item.quantity = s.stock;
                 }
             }
             next.push(item);

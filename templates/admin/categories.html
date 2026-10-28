@@ -1,0 +1,75 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Categories / ምድቦች</h1>
+</div>
+
+<div class="detail-card" style="margin-bottom:24px;max-width:560px;">
+    <h3>Add category / አዲስ ምድብ</h3>
+    <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="add">
+        <div class="form-group">
+            <label>Name (Amharic)</label>
+            <input type="text" name="name_am" required placeholder="ለምሳሌ ዘይት">
+        </div>
+        <div class="form-group">
+            <label>Name (English)</label>
+            <input type="text" name="name_en" required placeholder="e.g. Oil">
+        </div>
+        <div class="form-group">
+            <label>Sort order</label>
+            <input type="number" name="sort_order" value="0">
+        </div>
+        <label class="checkbox-label">
+            <input type="checkbox" name="is_active" value="1" checked> Active
+        </label>
+        <button type="submit" class="btn btn-primary" style="margin-top:12px;">Add</button>
+    </form>
+</div>
+
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Amharic</th>
+                <th>English</th>
+                <th>Sort</th>
+                <th>Active</th>
+                <th>Products</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in categories %}
+        <tr>
+            <td>{{ c.id }}</td>
+            <td colspan="6">
+                <form method="POST" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="edit">
+                    <input type="hidden" name="id" value="{{ c.id }}">
+                    <input type="text" name="name_am" value="{{ c.name_am }}" required style="width:120px;">
+                    <input type="text" name="name_en" value="{{ c.name_en }}" required style="width:120px;">
+                    <input type="number" name="sort_order" value="{{ c.sort_order }}" style="width:70px;">
+                    <label style="font-size:.85rem;"><input type="checkbox" name="is_active" value="1" {% if c.is_active %}checked{% endif %}> Active</label>
+                    <button type="submit" class="btn btn-sm">Save</button>
+                </form>
+                <form method="POST" style="display:inline;" onsubmit="return confirm('Delete / deactivate this category?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="id" value="{{ c.id }}">
+                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+                <span style="color:#888;font-size:.85rem;">{{ c.products|length }} products</span>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">No categories yet</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

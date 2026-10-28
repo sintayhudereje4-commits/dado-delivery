@@ -103,8 +103,11 @@
     <script>
     // Soft refresh every 45s when tab visible (new assignments)
     setInterval(function(){
-      if (document.visibilityState === 'visible') location.reload();
-    }, 45000);
+      if (document.visibilityState !== 'visible') return;
+      var ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+      location.reload();
+    }, 60000);
     </script>
 </body>
 </html>

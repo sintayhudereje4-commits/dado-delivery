@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order {{ order.order_number }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
     <style>
         body { background:#f0f4f8; margin:0; font-family:Inter,sans-serif; }
         .top { background:#1565c0; color:#fff; padding:14px 16px; }
@@ -66,17 +66,17 @@
                 {% elif order.payment_required %}
                     <span class="unpaid">Bank payment: {{ order.payment_status }}</span>
                 {% else %}
-                    <span class="paid">No collection needed (order under {{ prepay_min }} ብር)</span>
+                    <span class="paid">No cash to collect (order under {{ prepay_min }} ብር) — deliver only / ገንዘብ አይሰበስቡ</span>
                 {% endif %}
             </p>
             <p><strong>Total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
-            {% if order.latitude and order.longitude %}
+            {% if order.latitude and order.longitude and not closed %}
             <p>
                 <a href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank" rel="noopener">Open in Google Maps</a>
             </p>
             <div id="map"></div>
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
             <script>
             (function(){
                 if (typeof L === 'undefined') {
@@ -93,6 +93,13 @@
             </script>
             {% endif %}
         </div>
+
+        {% if order.notes %}
+        <div class="card" style="border-left:4px solid #1565c0;">
+            <h3>Customer notes / የደንበኛ ማስታወሻ</h3>
+            <p style="margin:0;white-space:pre-wrap;">{{ order.notes }}</p>
+        </div>
+        {% endif %}
 
         <div class="card">
             <h3>Items</h3>
@@ -112,19 +119,21 @@
 
         {% if not closed %}
         <div class="card">
-            <h3>Update status</h3>
+            <h3>Update status / ሁኔታ አድስ</h3>
             <form method="POST" action="{{ url_for('transporter_order_status', oid=order.id) }}"
                   onsubmit="return confirm('Update order status?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                {% if order.status != 'out_for_delivery' %}
-                <button class="btn" type="submit" name="status" value="out_for_delivery">Out for delivery</button>
-                {% endif %}
+                {% if order.status in ('pending', 'confirmed', 'preparing') %}
+                <button class="btn" type="submit" name="status" value="out_for_delivery">Out for delivery / በመንገድ ላይ</button>
+                <p style="font-size:.85rem;color:#555;margin-top:8px;">First mark Out for delivery, then deliver.</p>
+                {% elif order.status == 'out_for_delivery' %}
                 <button class="btn btn-green" type="submit" name="status" value="delivered"
                     {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}disabled title="Upload COD receipt first"{% endif %}>
-                    Mark delivered
+                    Mark delivered / ደርሷል
                 </button>
                 {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}
                 <p style="font-size:.85rem;color:#e65100;margin-top:8px;">Upload COD receipt below before marking delivered.</p>
+                {% endif %}
                 {% endif %}
             </form>
         </div>
@@ -155,14 +164,16 @@
                          alt="receipt" style="max-width:100%;max-height:200px;margin-top:8px;border-radius:8px;">
                 </a>
             </div>
-            {% elif not closed %}
+            {% elif not closed and order.status != 'out_for_delivery' %}
+            <p style="color:#e65100;">First press <strong>Out for delivery</strong>, then upload the COD receipt.</p>
+            {% elif not closed and order.status == 'out_for_delivery' %}
             <form method="POST" action="{{ url_for('transporter_delivery_receipt', oid=order.id) }}"
                   enctype="multipart/form-data" style="margin-top:12px;"
                   onsubmit="return confirm('Send this receipt to admin?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div style="margin-bottom:10px;">
                     <label style="display:block;font-weight:600;margin-bottom:4px;">Amount collected (ብር) *</label>
-                    <input type="number" name="amount_collected" step="1" required
+                    <input type="number" name="amount_collected" step="0.01" required
                            placeholder="{{ '%.0f'|format(order.total_amount) }}"
                            style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;">
                     <small style="color:#666;">Order total is {{ '%.0f'|format(order.total_amount) }} ብር — enter what you actually collected</small>
