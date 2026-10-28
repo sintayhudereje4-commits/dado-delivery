@@ -81,9 +81,25 @@
         </div>
     </div>
 
-    <h3>Prices & Stock by weight / ዋጋ እና ክምችት በክብደት</h3>
-    <p class="hint">ለእያንዳንዱ ክብደት ዋጋ ያስገቡ። Example: unit 850 ብር, bulk min 10, bulk price 800 ብር → buying 10+ pieces uses 800 each.</p>
-    <div class="variants-admin">
+    <div class="form-group" style="background:#fff8e1;padding:16px;border-radius:10px;border:1px solid #ffe082;margin-bottom:16px;">
+        <label for="unit" style="font-weight:700;">Unit of measure / የመለኪያ አሃድ *</label>
+        <select id="unit" name="unit" style="max-width:280px;">
+            {% set current_unit = (product.unit if product else 'kg') %}
+            <option value="kg" {% if current_unit == 'kg' %}selected{% endif %}>kg / ኪ.ግ (እህል፣ ሽሮ…)</option>
+            <option value="L" {% if current_unit == 'L' %}selected{% endif %}>Liter / ሊትር (ዘይት፣ ፈሳሽ…)</option>
+            <option value="pcs" {% if current_unit == 'pcs' %}selected{% endif %}>Pieces / ብዛት (እቃ በቁጥር)</option>
+            <option value="pack" {% if current_unit == 'pack' %}selected{% endif %}>Pack / ጥቅል</option>
+            <option value="bag" {% if current_unit == 'bag' %}selected{% endif %}>Bag / ከረጢት</option>
+        </select>
+        <p style="font-size:.85rem;color:#555;margin-top:6px;">
+            ዘይት → <strong>ሊትር (L)</strong>፤ እህል → <strong>ኪ.ግ</strong>፤ በቁጥር የሚሸጡ → <strong>ብዛት/ጥቅል</strong>።
+            መጠኖቹ ከአሃዱ ጋር ይቀያየራሉ።
+        </p>
+    </div>
+
+    <h3>Prices & Stock by size / ዋጋ እና ክምችት በመጠን</h3>
+    <p class="hint">ለእያንዳንዱ መጠን ዋጋ ያስገቡ። Example: unit 850 ብር, bulk min 10, bulk price 800 ብር → buying 10+ uses 800 each.</p>
+    <div class="variants-admin" id="variantsAdmin">
         {% for w in weights %}
         {% set ns = namespace(v=none) %}
         {% if product %}
@@ -91,8 +107,9 @@
                 {% set ns.v = vv %}
             {% endfor %}
         {% endif %}
-        <div class="variant-row" style="grid-template-columns: 70px 1fr 1fr 1fr 1fr auto;">
-            <strong>{{ w }} kg</strong>
+        {% set ul = unit_label(current_unit, 'en') %}
+        <div class="variant-row" data-size="{{ w }}" style="grid-template-columns: 80px 1fr 1fr 1fr 1fr auto;">
+            <strong class="size-label">{{ w }} {{ ul }}</strong>
             <div class="form-group">
                 <label>Unit price</label>
                 <input type="number" step="0.01" name="price_{{ w }}" value="{{ ns.v.price if ns.v else 0 }}" required>
@@ -131,4 +148,59 @@
         <a href="{{ url_for('admin_products') }}" class="btn btn-outline">Cancel</a>
     </div>
 </form>
+
+<script>
+(function(){
+  const presets = {{ unit_presets | tojson if unit_presets is defined else '{"kg":[10,15,25,50,100],"L":[1,3,5,10,20],"pcs":[1,6,12,24],"pack":[1,5,10,20],"bag":[1,5,10,25]}' }};
+  const labels = {{ unit_labels | tojson if unit_labels is defined else '{"kg":{"en":"kg"},"L":{"en":"L"},"pcs":{"en":"pcs"},"pack":{"en":"pack"},"bag":{"en":"bag"}}' }};
+  const unitSel = document.getElementById('unit');
+  const container = document.getElementById('variantsAdmin');
+  if (!unitSel || !container) return;
+
+  // Existing variant values (for edit) so we can re-fill after rebuild
+  function collectCurrent() {
+    const data = {};
+    container.querySelectorAll('.variant-row').forEach(function(row){
+      const w = row.getAttribute('data-size');
+      if (!w) return;
+      data[w] = {
+        price: (row.querySelector('[name="price_'+w+'"]') || {}).value || '0',
+        bulk_min: (row.querySelector('[name="bulk_min_'+w+'"]') || {}).value || '10',
+        bulk_price: (row.querySelector('[name="bulk_price_'+w+'"]') || {}).value || '',
+        stock: (row.querySelector('[name="stock_'+w+'"]') || {}).value || '100',
+        available: !!(row.querySelector('[name="available_'+w+'"]') || {}).checked,
+        update_stock: !!(row.querySelector('[name="update_stock_'+w+'"]') || {}).checked
+      };
+    });
+    return data;
+  }
+
+  function rebuild() {
+    const unit = unitSel.value || 'kg';
+    const sizes = presets[unit] || presets.kg;
+    const ul = (labels[unit] && labels[unit].en) || unit;
+    const prev = collectCurrent();
+    let html = '';
+    sizes.forEach(function(w){
+      const p = prev[w] || {price:'0', bulk_min:'10', bulk_price:'', stock:'100', available:true, update_stock:false};
+      html += '<div class="variant-row" data-size="'+w+'" style="grid-template-columns: 80px 1fr 1fr 1fr 1fr auto;">';
+      html += '<strong class="size-label">'+w+' '+ul+'</strong>';
+      html += '<div class="form-group"><label>Unit price</label>';
+      html += '<input type="number" step="0.01" name="price_'+w+'" value="'+p.price+'" required></div>';
+      html += '<div class="form-group"><label>Bulk min qty</label>';
+      html += '<input type="number" name="bulk_min_'+w+'" value="'+p.bulk_min+'"></div>';
+      html += '<div class="form-group"><label>Bulk unit price</label>';
+      html += '<input type="number" step="0.01" name="bulk_price_'+w+'" value="'+p.bulk_price+'" placeholder="optional"></div>';
+      html += '<div class="form-group"><label>Stock</label>';
+      html += '<input type="number" name="stock_'+w+'" value="'+p.stock+'" min="0"></div>';
+      html += '<div class="form-group"><label class="checkbox-label">';
+      html += '<input type="checkbox" name="available_'+w+'" value="1"'+(p.available?' checked':'')+'> On</label></div>';
+      html += '</div>';
+    });
+    container.innerHTML = html;
+  }
+
+  unitSel.addEventListener('change', rebuild);
+})();
+</script>
 {% endblock %}

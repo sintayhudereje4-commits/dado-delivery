@@ -23,12 +23,15 @@
                 <h1>{{ product.name_am if current_lang == 'am' else product.name_en }}</h1>
                 <p class="desc">{{ product.description_am if current_lang == 'am' else product.description_en }}</p>
 
-                <h3 class="variants-title">{% if current_lang == 'am' %}ክብደት ይምረጡ{% else %}Select Weight{% endif %}</h3>
+                <h3 class="variants-title">{% if current_lang == 'am' %}መጠን ይምረጡ{% else %}Select Size{% endif %}</h3>
                 <div class="variants-list" id="variantsList">
+                    {% set punit = product.unit or 'kg' %}
+                    {% set ul = unit_label(punit, current_lang) %}
                     {% for v in product.variants if v.is_available and (v.stock or 0) > 0 and (v.price or 0) > 0 %}
                     <label class="variant-option">
                         <input type="radio" name="variant" value="{{ v.id }}"
                                data-weight="{{ v.weight_kg }}"
+                               data-unit="{{ punit }}"
                                data-price="{{ v.price }}"
                                data-bulk-price="{{ v.bulk_price if v.bulk_price is not none else '' }}"
                                data-bulk-min="{{ v.bulk_min_qty or 10 }}"
@@ -36,7 +39,7 @@
                                data-name="{{ product.name_am if current_lang == 'am' else product.name_en }}"
                                {% if loop.first %}checked{% endif %}>
                         <span class="variant-label">
-                            <strong>{{ v.weight_kg }} ኪ.ግ</strong>
+                            <strong>{{ v.weight_kg }} {{ ul }}</strong>
                             <span class="variant-price">{{ "%.0f"|format(v.price) }} ብር</span>
                             {% if v.bulk_price and v.bulk_min_qty %}
                                 <span class="bulk-hint">
@@ -107,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('addToCartBtn').addEventListener('click', function() {
         const selected = document.querySelector('input[name="variant"]:checked');
         if (!selected) {
-            showToast('{% if current_lang == "am" %}ክብደት ይምረጡ{% else %}Please select a weight{% endif %}', 'error');
+            showToast('{% if current_lang == "am" %}መጠን ይምረጡ{% else %}Please select a size{% endif %}', 'error');
             return;
         }
         const qty = parseInt(qtyInput.value) || 1;
@@ -120,6 +123,11 @@ document.addEventListener('DOMContentLoaded', function() {
             product_id: {{ product.id }},
             name: selected.dataset.name,
             weight_kg: parseInt(selected.dataset.weight),
+            unit: selected.dataset.unit || 'kg',
+            unit_label: selected.dataset.unit === 'L' ? 'ሊትር' :
+                        selected.dataset.unit === 'pcs' ? 'ብዛት' :
+                        selected.dataset.unit === 'pack' ? 'ጥቅል' :
+                        selected.dataset.unit === 'bag' ? 'ከረጢት' : 'ኪ.ግ',
             price: unitPrice,
             base_price: basePrice,
             bulk_price: bulkPrice,

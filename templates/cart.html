@@ -19,7 +19,7 @@
                         <span style="margin-left:8px;color:#666;font-size:.9rem;">{{ o.created_at|addis }}</span>
                         <div style="margin-top:4px;font-size:.9rem;">
                             {{ '%.0f'|format(o.total_amount) }} ብር
-                            · {% for it in o.items %}{{ it.product_name }} {{ it.weight_kg }}kg×{{ it.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            · {% for it in o.items %}{{ it.product_name }} {{ it.weight_kg }}{{ unit_label(it.unit or 'kg', current_lang) }}×{{ it.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}
                         </div>
                         {% if o.estimated_delivery %}
                         <div style="margin-top:6px;color:#1565c0;font-weight:600;font-size:.9rem;">
@@ -123,7 +123,7 @@ function renderCart() {
 
     let html = '<div class="cart-table-wrap"><table class="cart-table"><thead><tr>';
     html += '<th>{% if current_lang == "am" %}ምርት{% else %}Product{% endif %}</th>';
-    html += '<th>{% if current_lang == "am" %}ክብደት{% else %}Weight{% endif %}</th>';
+    html += '<th>{% if current_lang == "am" %}መጠን{% else %}Size{% endif %}</th>';
     html += '<th>{% if current_lang == "am" %}ዋጋ{% else %}Price{% endif %}</th>';
     html += '<th>{% if current_lang == "am" %}ብዛት{% else %}Qty{% endif %}</th>';
     html += '<th>{% if current_lang == "am" %}ድምር{% else %}Subtotal{% endif %}</th>';
@@ -142,7 +142,7 @@ function renderCart() {
         total += sub;
         html += `<tr>
             <td data-label="Product">${escapeHtml(item.name)}</td>
-            <td data-label="Weight">${escapeHtml(item.weight_kg)} ኪ.ግ</td>
+            <td data-label="Size">${escapeHtml(item.weight_kg)} ${escapeHtml(item.unit_label || item.unit || 'ኪ.ግ')}</td>
             <td data-label="Price">${item.price.toFixed(0)} ብር</td>
             <td data-label="Qty">
                 <div class="qty-control small">

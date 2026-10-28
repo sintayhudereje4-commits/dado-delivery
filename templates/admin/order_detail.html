@@ -225,7 +225,7 @@
         <thead>
             <tr>
                 <th>Product</th>
-                <th>Weight</th>
+                <th>Size</th>
                 <th>Unit Price</th>
                 <th>Qty</th>
                 <th>Subtotal</th>
@@ -235,7 +235,7 @@
             {% for item in order.items %}
             <tr>
                 <td>{{ item.product_name }}</td>
-                <td>{{ item.weight_kg }} kg</td>
+                <td>{{ item.weight_kg }} {{ unit_label(item.unit or 'kg', 'en') }}</td>
                 <td>{{ '%.0f'|format(item.unit_price) }} ብር</td>
                 <td>{{ item.quantity }}</td>
                 <td>{{ '%.0f'|format(item.subtotal) }} ብር</td>

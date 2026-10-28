@@ -48,7 +48,39 @@ except ImportError:
 # the transporter must send a receipt to the admin.
 PREPAY_MIN = 100
 PREPAY_MAX = 100000
+# Legacy default sizes (kg). Prefer UNIT_PRESETS by product.unit.
 WEIGHTS = [10, 15, 25, 50, 100]
+
+# Size options per unit type. Admin picks a unit for each product; the form
+# then shows these sizes. Oil → L, grains → kg, packaged goods → pcs/pack.
+UNIT_PRESETS = {
+    'kg':   [10, 15, 25, 50, 100],
+    'L':    [1, 3, 5, 10, 20],
+    'pcs':  [1, 6, 12, 24],
+    'pack': [1, 5, 10, 20],
+    'bag':  [1, 5, 10, 25],
+}
+UNIT_LABELS = {
+    'kg':   {'en': 'kg',   'am': 'ኪ.ግ'},
+    'L':    {'en': 'L',    'am': 'ሊትር'},
+    'pcs':  {'en': 'pcs',  'am': 'ብዛት'},
+    'pack': {'en': 'pack', 'am': 'ጥቅል'},
+    'bag':  {'en': 'bag',  'am': 'ከረጢት'},
+}
+ALLOWED_UNITS = list(UNIT_PRESETS.keys())
+
+
+def unit_label(unit, lang='en'):
+    """Human-readable unit short label."""
+    u = (unit or 'kg').strip()
+    labels = UNIT_LABELS.get(u) or UNIT_LABELS['kg']
+    return labels.get(lang) or labels['en']
+
+
+def sizes_for_unit(unit):
+    """List of size values for a product unit."""
+    return list(UNIT_PRESETS.get((unit or 'kg').strip(), WEIGHTS))
+
 
 # ---------------------------------------------------------------------------
 # App configuration
@@ -649,6 +681,8 @@ class Product(db.Model):
     description_am = db.Column(db.Text, default='')
     description_en = db.Column(db.Text, default='')
     image_path = db.Column(db.String(255), default='')
+    # Measurement unit for variant sizes: kg | L | pcs | pack | bag
+    unit = db.Column(db.String(10), default='kg', nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     sort_order = db.Column(db.Integer, default=0)
     delivery_min_hours = db.Column(db.Integer, default=2)
@@ -661,7 +695,8 @@ class Product(db.Model):
 class ProductVariant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
-    weight_kg = db.Column(db.Integer, nullable=False)  # 10, 15, 25, 50, 100
+    # Numeric size value (kg, liters, pieces, …). Column name kept for DB compatibility.
+    weight_kg = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False, default=0.0)  # unit price (1–bulk_min-1)
     bulk_min_qty = db.Column(db.Integer, default=10)  # qty at which bulk price applies
     bulk_price = db.Column(db.Float, nullable=True)  # unit price when qty >= bulk_min_qty
@@ -755,7 +790,8 @@ class OrderItem(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     variant_id = db.Column(db.Integer, db.ForeignKey('product_variant.id'), nullable=False)
     product_name = db.Column(db.String(120), nullable=False)
-    weight_kg = db.Column(db.Integer, nullable=False)
+    weight_kg = db.Column(db.Integer, nullable=False)  # size value (kg / L / pcs …)
+    unit = db.Column(db.String(10), default='kg')  # snapshot of product.unit at order time
     unit_price = db.Column(db.Float, nullable=False)
     quantity = db.Column(db.Integer, default=1)
     subtotal = db.Column(db.Float, nullable=False)
@@ -1216,6 +1252,9 @@ def inject_globals():
         'current_customer': get_current_customer(),
         'map_tiles_url': map_tiles_url,
         'map_attribution': map_attribution,
+        'unit_label': unit_label,
+        'unit_labels': UNIT_LABELS,
+        'allowed_units': ALLOWED_UNITS,
     }
 
 
@@ -1493,6 +1532,7 @@ def checkout():
                     else (oi['product'].name_am if lang == 'am' else (oi['product'].name_en or oi['product'].name_am))
                 ),
                 weight_kg=oi['variant'].weight_kg,
+                unit=(oi['product'].unit or 'kg'),
                 unit_price=oi['unit'],
                 quantity=oi['qty'],
                 subtotal=oi['subtotal']
@@ -1636,21 +1676,22 @@ def ai_help_reply(user_message, settings=None):
             lines = []
             for p in products:
                 name = p.name_am if lang == 'am' else (p.name_en or p.name_am)
-                vars_ = ', '.join(f'{v.weight_kg}kg' for v in p.variants if v.is_available)
+                ul = unit_label(p.unit, lang)
+                vars_ = ', '.join(f'{v.weight_kg}{ul}' for v in p.variants if v.is_available)
                 lines.append(f'• {name}' + (f' ({vars_})' if vars_ else ''))
             body = '\n'.join(lines)
             return am_en(
-                f'ያሉ ምርቶች፦\n{body}\n\nክብደት፦ 10 / 15 / 25 / 50 / 100 ኪ.ግ። ከመነሻ ገጽ ምርጫ ያድርጉ።',
-                f'Available products:\n{body}\n\nWeights: 10 / 15 / 25 / 50 / 100 kg. Choose from the home page.'
+                f'ያሉ ምርቶች፦\n{body}\n\nመጠኖች በምርት አይነት ይለያያሉ (ኪ.ግ፣ ሊትር፣ ብዛት…)። ከመነሻ ገጽ ምርጫ ያድርጉ።',
+                f'Available products:\n{body}\n\nSizes depend on the product (kg, liters, pcs…). Choose from the home page.'
             )
         return am_en('በአሁኑ ሰዓት የታተሙ ምርቶች የሉም።', 'No published products right now.')
 
     # price
     if any(k in msg or k in raw for k in ['price', 'ዋጋ', 'ስንት', 'cost', 'how much', 'በስንት']):
         return am_en(
-            'ዋጋው በእያንዳንዱ ምርትና ክብደት ይለያያል፤ ከ10 በላይ ፍሬ ሲያዙ ቅናሽ (bulk) ሊኖር ይችላል።\n'
+            'ዋጋው በእያንዳንዱ ምርትና መጠን ይለያያል፤ ከ10 በላይ ፍሬ ሲያዙ ቅናሽ (bulk) ሊኖር ይችላል።\n'
             'ትክክለኛ ዋጋ ለማየት ምርቱን ከመነሻ ገጽ ይምረጡ።',
-            'Prices vary by product and weight. Buying 10+ units may get bulk discount.\n'
+            'Prices vary by product and size. Buying 10+ units may get bulk discount.\n'
             'Open a product on the home page for exact prices.'
         )
 
@@ -2480,6 +2521,12 @@ def _save_product_image(product):
             flash(_('The image could not be saved. Use a JPG, PNG, GIF or WEBP file.'), 'error')
 
 
+def _read_product_unit():
+    """Validate unit from form; default kg."""
+    u = (request.form.get('unit') or 'kg').strip()
+    return u if u in ALLOWED_UNITS else 'kg'
+
+
 @app.route('/admin/products/add', methods=['GET', 'POST'])
 @admin_required
 def admin_product_add():
@@ -2494,12 +2541,14 @@ def admin_product_add():
         cat_id = form_int('category_id', 0, 0, 10**9) or None
         if cat_id and not db.session.get(Category, cat_id):
             cat_id = None
+        unit = _read_product_unit()
         product = Product(
             category_id=cat_id,
             name_am=name_am,
             name_en=name_en,
             description_am=request.form.get('description_am', ''),
             description_en=request.form.get('description_en', ''),
+            unit=unit,
             is_active=bool(request.form.get('is_active')),
             sort_order=form_int('sort_order', 0, -10000, 10000),
             delivery_min_hours=d_min,
@@ -2510,11 +2559,11 @@ def admin_product_add():
         db.session.add(product)
         db.session.flush()
 
-        for w in WEIGHTS:
+        for w in sizes_for_unit(unit):
             is_avail = bool(request.form.get(f'available_{w}'))
             price = form_float(f'price_{w}', 0.0, 0.0, 1e8)
             if is_avail and price <= 0:
-                flash(_('Available weights must have a price greater than 0'), 'error')
+                flash(_('Available sizes must have a price greater than 0'), 'error')
                 return redirect(url_for('admin_product_add'))
             bulk = form_float_or_none(f'bulk_price_{w}', 0.0, 1e8)
             if bulk is not None and (bulk <= 0 or bulk > price):
@@ -2542,6 +2591,9 @@ def admin_product_add():
         'admin/product_form.html',
         product=None,
         weights=WEIGHTS,
+        unit_presets=UNIT_PRESETS,
+        unit_labels=UNIT_LABELS,
+        allowed_units=ALLOWED_UNITS,
         categories=categories,
         preselect_category=preselect_cat
     )
@@ -2561,40 +2613,70 @@ def admin_product_edit(pid):
         cat_id = form_int('category_id', 0, 0, 10**9) or None
         if cat_id and not db.session.get(Category, cat_id):
             cat_id = None
+        unit = _read_product_unit()
         product.category_id = cat_id
         product.name_am = name_am
         product.name_en = name_en
         product.description_am = request.form.get('description_am', '')
         product.description_en = request.form.get('description_en', '')
+        product.unit = unit
         product.is_active = bool(request.form.get('is_active'))
         product.sort_order = form_int('sort_order', 0, -10000, 10000)
         product.delivery_min_hours = d_min
         product.delivery_max_hours = d_max
         _save_product_image(product)
 
-        for variant in product.variants:
-            w = variant.weight_kg
+        existing = {v.weight_kg: v for v in product.variants}
+        sizes = sizes_for_unit(unit)
+        # Also keep any existing sizes that are not in the new preset (so data is not lost)
+        for w in existing:
+            if w not in sizes:
+                sizes.append(w)
+        sizes = sorted(set(sizes))
+
+        for w in sizes:
             is_avail = bool(request.form.get(f'available_{w}'))
             price = form_float(f'price_{w}', 0.0, 0.0, 1e8)
             if is_avail and price <= 0:
-                flash(_('Available weights must have a price greater than 0'), 'error')
+                flash(_('Available sizes must have a price greater than 0'), 'error')
                 return redirect(url_for('admin_product_edit', pid=pid))
             bulk = form_float_or_none(f'bulk_price_{w}', 0.0, 1e8)
             if bulk is not None and (bulk <= 0 or bulk > price):
                 flash(_('Bulk price must be > 0 and less than or equal to regular price'), 'error')
                 return redirect(url_for('admin_product_edit', pid=pid))
+            variant = existing.get(w)
+            if variant is None:
+                variant = ProductVariant(product_id=product.id, weight_kg=w)
+                db.session.add(variant)
             variant.price = price
             variant.bulk_price = bulk
             variant.bulk_min_qty = form_int(f'bulk_min_{w}', 10, 1, 100000)
             if request.form.get(f'update_stock_{w}') and f'stock_{w}' in request.form:
                 variant.stock = form_int(f'stock_{w}', 0, 0, 10000000)
+            elif variant.id is None:
+                variant.stock = form_int(f'stock_{w}', 100, 0, 10000000)
             variant.is_available = is_avail
 
         db.session.commit()
         flash(_('Product updated successfully'), 'success')
         return redirect(url_for('admin_products'))
 
-    return render_template('admin/product_form.html', product=product, weights=WEIGHTS, categories=Category.query.order_by(Category.sort_order, Category.id).all())
+    # Sizes to show: preset for current unit + any extra sizes already on the product
+    unit = product.unit or 'kg'
+    sizes = sizes_for_unit(unit)
+    for v in product.variants:
+        if v.weight_kg not in sizes:
+            sizes.append(v.weight_kg)
+    sizes = sorted(set(sizes))
+    return render_template(
+        'admin/product_form.html',
+        product=product,
+        weights=sizes,
+        unit_presets=UNIT_PRESETS,
+        unit_labels=UNIT_LABELS,
+        allowed_units=ALLOWED_UNITS,
+        categories=Category.query.order_by(Category.sort_order, Category.id).all()
+    )
 
 
 @app.route('/admin/products/<int:pid>/delete', methods=['POST'])
@@ -3071,6 +3153,12 @@ def init_db():
             db.session.rollback()
             print('settings migrate note:', e)
         try:
+            _ensure_column('product', 'unit', "VARCHAR(10) DEFAULT 'kg'")
+            _ensure_column('order_item', 'unit', "VARCHAR(10) DEFAULT 'kg'")
+        except Exception as e:
+            db.session.rollback()
+            print('unit migrate note:', e)
+        try:
             for col, ddl in [
                 ('delivery_receipt_path', "VARCHAR(255) DEFAULT ''"),
                 ('cod_amount_collected', 'FLOAT'),
@@ -3277,6 +3365,7 @@ def api_cart_prices():
             'stock': variant.stock,
             'name': pname,
             'weight_kg': variant.weight_kg,
+            'unit': variant.product.unit or 'kg',
         })
     return jsonify({'items': result})
 

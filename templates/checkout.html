@@ -162,7 +162,8 @@ document.addEventListener('DOMContentLoaded', function () {
         cart.forEach(item => {
             const sub = item.price * item.quantity;
             total += sub;
-            html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}kg) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
+            const u = item.unit_label || item.unit || 'kg';
+            html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}${escapeHtml(u)}) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
         });
         html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${total.toFixed(0)} ብር</strong></div>`;
         document.getElementById('orderSummary').innerHTML = html;

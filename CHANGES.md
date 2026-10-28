@@ -1,5 +1,14 @@
 # የተደረጉ ማስተካከያዎች (Changes)
 
+## 2026-10-28 — የመለኪያ አሃድ (Unit of measure)
+- **ምርት unit**: እያንዳንዱ ምርት `kg` / `L` / `pcs` / `pack` / `bag` ሊኖረው ይችላል
+- **ዘይት** → ሊትር (1, 3, 5, 10, 20 L)
+- **እህል** → ኪ.ግ (10, 15, 25, 50, 100 kg)
+- **በቁጥር** → pcs / pack / bag
+- Admin ቅጽ ላይ አሃድ ሲመረጥ መጠኖቹ በራስ-ሰር ይቀያየራሉ
+- Cart, checkout, order detail ሁሉም አሃዱን ያሳያሉ (ኪ.ግ ብቻ አይደለም)
+- `OrderItem.unit` snapshot — የድሮ ትዕዛዞች አሃዳቸው ይጠበቃል
+
 ## 2026-10-25 — የደህንነትና የተጠቃሚ ልምድ ማሻሻያዎች
 - **Map tiles**: `MAP_TILES_URL` + `MAP_ATTRIBUTION` env (MapTiler/Mapbox). Esri only as local fallback.
 - **Phone normalization**: 0911… / +251911… ወደ `+2519xxxxxxxx` ይቀየራል

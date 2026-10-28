@@ -104,12 +104,12 @@
         <div class="card">
             <h3>Items</h3>
             <table>
-                <thead><tr><th>Product</th><th>Weight</th><th>Qty</th></tr></thead>
+                <thead><tr><th>Product</th><th>Size</th><th>Qty</th></tr></thead>
                 <tbody>
                 {% for it in order.items %}
                 <tr>
                     <td>{{ it.product_name }}</td>
-                    <td>{{ it.weight_kg }} kg</td>
+                    <td>{{ it.weight_kg }} {{ unit_label(it.unit or 'kg', 'en') }}</td>
                     <td>{{ it.quantity }}</td>
                 </tr>
                 {% endfor %}

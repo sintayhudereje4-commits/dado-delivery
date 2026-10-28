@@ -157,6 +157,12 @@ function refreshCartPrices(cb) {
             item.bulk_price = s.bulk_price;
             item.bulk_min = s.bulk_min;
             if (s.name) item.name = s.name;
+            if (s.weight_kg != null) item.weight_kg = s.weight_kg;
+            if (s.unit) {
+                item.unit = s.unit;
+                var _ul = {kg:'ኪ.ግ', L:'ሊትር', pcs:'ብዛት', pack:'ጥቅል', bag:'ከረጢት'};
+                item.unit_label = _ul[s.unit] || s.unit;
+            }
             if (typeof s.stock === 'number') {
                 item.stock = s.stock;
                 if (s.stock <= 0) {
