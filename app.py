@@ -2450,8 +2450,12 @@ def admin_categories():
 @app.route('/admin/products')
 @admin_required
 def admin_products():
-    products = Product.query.order_by(Product.sort_order, Product.id).all()
     categories = Category.query.order_by(Category.sort_order, Category.id).all()
+    cat_id = form_int('category', 0, 0, 10**9) or None
+    q = Product.query
+    if cat_id:
+        q = q.filter_by(category_id=cat_id)
+    products = q.order_by(Product.sort_order, Product.id).all()
     return render_template('admin/products.html', products=products, categories=categories)
 
 
@@ -2531,7 +2535,16 @@ def admin_product_add():
         flash(_('Product added successfully'), 'success')
         return redirect(url_for('admin_products'))
 
-    return render_template('admin/product_form.html', product=None, weights=WEIGHTS, categories=Category.query.order_by(Category.sort_order, Category.id).all())
+    # Pre-select category when coming from Categories page (?category=ID)
+    preselect_cat = form_int('category', 0, 0, 10**9) or None
+    categories = Category.query.order_by(Category.sort_order, Category.id).all()
+    return render_template(
+        'admin/product_form.html',
+        product=None,
+        weights=WEIGHTS,
+        categories=categories,
+        preselect_category=preselect_cat
+    )
 
 
 @app.route('/admin/products/<int:pid>/edit', methods=['GET', 'POST'])

@@ -2,31 +2,37 @@
 {% block title %}{% if product %}Edit{% else %}Add{% endif %} Product{% endblock %}
 
 {% block content %}
-<h1>{% if product %}Edit Product{% else %}Add Product{% endif %}</h1>
+<h1>{% if product %}Edit Product{% else %}Add Product / አዲስ ምርት{% endif %}</h1>
 
 <form method="POST" enctype="multipart/form-data" class="admin-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <div class="form-group">
-        <label for="category_id">Category / ምድብ</label>
-        <select id="category_id" name="category_id">
-            <option value="">— None —</option>
+    <div class="form-group" style="background:#f1f8f2;padding:16px;border-radius:10px;border:1px solid #c8e6c9;">
+        <label for="category_id" style="font-weight:700;">Category / ምድብ *</label>
+        <select id="category_id" name="category_id" style="max-width:360px;">
+            <option value="">— Select category / ምድብ ይምረጡ —</option>
             {% for c in categories or [] %}
-            <option value="{{ c.id }}" {% if product and product.category_id == c.id %}selected{% endif %}>
+            <option value="{{ c.id }}"
+                {% if product and product.category_id == c.id %}selected
+                {% elif not product and preselect_category and preselect_category == c.id %}selected
+                {% endif %}>
                 {{ c.name_am }} / {{ c.name_en }}
             </option>
             {% endfor %}
         </select>
-        <p style="font-size:.85rem;color:#666;margin-top:4px;">Manage categories under <a href="{{ url_for('admin_categories') }}">Categories</a>.</p>
+        <p style="font-size:.85rem;color:#555;margin-top:6px;">
+            ምርቱ በዚህ ምድብ ስር ይታያል። ምድብ ከሌለዎት መጀመሪያ
+            <a href="{{ url_for('admin_categories') }}">Categories</a> ላይ ይፍጠሩ።
+        </p>
     </div>
 
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-row">
         <div class="form-group">
-            <label for="name_am">Name (Amharic) *</label>
+            <label for="name_am">Name (Amharic) / ስም (አማርኛ) *</label>
             <input type="text" id="name_am" name="name_am" value="{{ product.name_am if product else '' }}" required>
         </div>
         <div class="form-group">
-            <label for="name_en">Name (English) *</label>
+            <label for="name_en">Name (English) / ስም (እንግሊዝኛ) *</label>
             <input type="text" id="name_en" name="name_en" value="{{ product.name_en if product else '' }}" required>
         </div>
     </div>
@@ -44,11 +50,12 @@
 
     <div class="form-row">
         <div class="form-group">
-            <label for="image">Product Image</label>
+            <label for="image">Product Photo / ፎቶ</label>
             <input type="file" id="image" name="image" accept="image/*">
             {% if product and product.image_path %}
                 <p class="current-img">Current: <img src="{{ url_for('static', filename=product.image_path) }}" class="thumb"></p>
             {% endif %}
+            <small style="color:#666;">JPG, PNG, GIF or WEBP</small>
         </div>
         <div class="form-group">
             <label for="sort_order">Sort Order</label>
@@ -62,7 +69,7 @@
         </div>
     </div>
 
-    <h3>Delivery time for this product</h3>
+    <h3>Delivery time for this product / የማድረሻ ጊዜ</h3>
     <div class="form-row">
         <div class="form-group">
             <label for="delivery_min_hours">Min hours</label>
@@ -74,8 +81,8 @@
         </div>
     </div>
 
-    <h3>Weight Variants — Price, Bulk price (≥ N pieces), Stock</h3>
-    <p class="hint">Example: unit 850 ብር, bulk min 10, bulk price 800 ብር → buying 10+ pieces uses 800 each.</p>
+    <h3>Prices & Stock by weight / ዋጋ እና ክምችት በክብደት</h3>
+    <p class="hint">ለእያንዳንዱ ክብደት ዋጋ ያስገቡ። Example: unit 850 ብር, bulk min 10, bulk price 800 ብር → buying 10+ pieces uses 800 each.</p>
     <div class="variants-admin">
         {% for w in weights %}
         {% set ns = namespace(v=none) %}

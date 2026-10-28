@@ -57,13 +57,16 @@
                     <label style="font-size:.85rem;"><input type="checkbox" name="is_active" value="1" {% if c.is_active %}checked{% endif %}> Active</label>
                     <button type="submit" class="btn btn-sm">Save</button>
                 </form>
-                <form method="POST" style="display:inline;" onsubmit="return confirm('Delete / deactivate this category?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="id" value="{{ c.id }}">
-                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                </form>
-                <span style="color:#888;font-size:.85rem;">{{ c.products|length }} products</span>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;">
+                    <a href="{{ url_for('admin_product_add', category=c.id) }}" class="btn btn-sm btn-primary">+ Add Product under this</a>
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete / deactivate this category?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="id" value="{{ c.id }}">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                    <span style="color:#888;font-size:.85rem;">{{ c.products|length }} products</span>
+                </div>
             </td>
         </tr>
         {% else %}

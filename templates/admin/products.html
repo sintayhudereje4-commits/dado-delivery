@@ -3,9 +3,22 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>Products</h1>
+    <h1>Products / ምርቶች</h1>
     <a href="{{ url_for('admin_product_add') }}" class="btn btn-primary">+ Add Product</a>
 </div>
+
+{% if categories %}
+<div style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+    <span style="font-weight:600;font-size:.9rem;">Filter by category:</span>
+    <a href="{{ url_for('admin_products') }}" class="btn btn-sm {% if not request.args.get('category') %}btn-primary{% else %}btn-outline{% endif %}">All</a>
+    {% for c in categories %}
+    <a href="{{ url_for('admin_products', category=c.id) }}"
+       class="btn btn-sm {% if request.args.get('category')|int == c.id %}btn-primary{% else %}btn-outline{% endif %}">
+        {{ c.name_en }} ({{ c.products|length }})
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
 
 <div class="table-wrap">
     <table class="admin-table">
@@ -30,7 +43,7 @@
                         <span class="no-img">—</span>
                     {% endif %}
                 </td>
-                <td>{% if p.category %}{{ p.category.name_en }}{% else %}—{% endif %}</td>
+                <td>{% if p.category %}{{ p.category.name_en }}{% else %}<span style="color:#999;">—</span>{% endif %}</td>
                 <td>{{ p.name_am }}</td>
                 <td>{{ p.name_en }}</td>
                 <td>{% if p.is_active %}✓{% else %}✗{% endif %}</td>
@@ -38,13 +51,13 @@
                 <td class="actions">
                     <a href="{{ url_for('admin_product_edit', pid=p.id) }}" class="btn btn-sm">Edit</a>
                     <form method="POST" action="{{ url_for('admin_product_delete', pid=p.id) }}" style="display:inline;" onsubmit="return confirm('Delete this product?');">
-<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                     </form>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="7">No products</td></tr>
+            <tr><td colspan="7">No products yet. <a href="{{ url_for('admin_product_add') }}">Add the first product</a></td></tr>
             {% endfor %}
         </tbody>
     </table>
