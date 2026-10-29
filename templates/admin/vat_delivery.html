@@ -1,0 +1,67 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}VAT & Delivery{% endblock %}
+
+{% block content %}
+<h1>VAT & Delivery / ቫት እና ዴሊቨሪ</h1>
+
+<form method="POST" class="admin-form" style="max-width:640px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <h3>Delivery / transport fee</h3>
+    <div class="form-group">
+        <label for="delivery_fee">Fee per order (ETB)</label>
+        <input type="number" step="0.01" min="0" id="delivery_fee" name="delivery_fee"
+               value="{{ '%.2f'|format(settings.delivery_fee or 0) }}" style="max-width:200px;">
+        <p class="hint">Shown separately from item prices on cart, checkout and receipt. Use 0 for free delivery.</p>
+    </div>
+
+    <h3 style="margin-top:24px;">Default VAT % for new products</h3>
+    <div class="form-group">
+        <label for="default_vat_percent">Suggested VAT rate (%)</label>
+        <input type="number" step="0.01" min="0" max="100" id="default_vat_percent" name="default_vat_percent"
+               value="{{ '%.2f'|format(settings.default_vat_percent if settings.default_vat_percent is not none else 15) }}"
+               style="max-width:200px;">
+        <p class="hint">
+            Used as the starting value when you <strong>add a new product</strong>.
+            Each product can override this (0 = VAT Exempt). Ethiopia standard rate is often 15%.
+        </p>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+</form>
+
+<h2 style="margin-top:36px;">Products — VAT status</h2>
+<p class="hint">Edit a product to change its VAT %. 0% = Exempt; e.g. 15% = Inclusive of 15% VAT.</p>
+<div class="table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>VAT %</th>
+                <th>Label</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in products %}
+            <tr>
+                <td>{{ p.name_am }} / {{ p.name_en }}</td>
+                <td>{{ '%.2g'|format(p.vat_percent or 0) }}%</td>
+                <td>
+                    {% if (p.vat_percent or 0) > 0 %}
+                        <span class="badge" style="background:#e8f5e9;color:#2e7d32;">VAT Inclusive</span>
+                    {% else %}
+                        <span class="badge" style="background:#e3f2fd;color:#1565c0;">VAT Exempt</span>
+                    {% endif %}
+                </td>
+                <td><a href="{{ url_for('admin_product_edit', pid=p.id) }}" class="btn btn-sm">Edit</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4">No products yet</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

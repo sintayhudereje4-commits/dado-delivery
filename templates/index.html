@@ -49,8 +49,8 @@
                             <p class="product-price">
                                 {% if current_lang == 'am' %}ከ{% else %}From{% endif %}
                                 <strong>{{ "%.0f"|format(priced|min) }} ብር</strong>
-                                <span class="vat-badge" style="display:block;font-size:.75rem;font-weight:600;color:{% if vat_mode == 'exempt' %}#1565c0{% else %}#2e7d32{% endif %};margin-top:2px;">
-                                    {{ vat_label(vat_mode, current_lang) }}
+                                <span class="vat-badge" style="display:block;font-size:.75rem;font-weight:600;color:{% if (product.vat_percent or 0) > 0 %}#2e7d32{% else %}#1565c0{% endif %};margin-top:2px;">
+                                    {{ product_vat_label(product.vat_percent, current_lang) }}
                                 </span>
                             </p>
                         {% else %}

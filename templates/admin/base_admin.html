@@ -21,6 +21,7 @@
             <a href="{{ url_for('admin_banks') }}" class="nav-item {% if request.endpoint == 'admin_banks' %}active{% endif %}">Banks</a>
             <a href="{{ url_for('admin_transporters') }}" class="nav-item {% if request.endpoint == 'admin_transporters' %}active{% endif %}">Transporters</a>
             <a href="{{ url_for('admin_support') }}" class="nav-item {% if 'support' in request.endpoint %}active{% endif %}">Support</a>
+            <a href="{{ url_for('admin_vat_delivery') }}" class="nav-item {% if request.endpoint == 'admin_vat_delivery' %}active{% endif %}">VAT &amp; Delivery</a>
             <a href="{{ url_for('admin_settings') }}" class="nav-item {% if request.endpoint == 'admin_settings' %}active{% endif %}">Settings</a>
             <a href="{{ url_for('index') }}" class="nav-item" target="_blank">View Site</a>
             <form method="POST" action="{{ url_for('admin_logout') }}" class="inline-form">
@@ -82,10 +83,12 @@
   var lastCheck = Date.now();
   var fingerprint = '';
 
-  if (badge) badge.hidden = false;
+  // Keep live polling but hide the on-screen badge (user request)
+  if (badge) badge.hidden = true;
 
   function setBadge(state, msg) {
     if (!badge) return;
+    badge.hidden = true; // never show
     badge.classList.remove('updating', 'paused');
     if (state) badge.classList.add(state);
     if (liveText && msg) liveText.textContent = msg;

@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const recInput = document.getElementById('receipt');
     const overNote = document.createElement('p');
     overNote.style.cssText = 'background:#e3f2fd;padding:12px;border-radius:8px;margin:12px 0;color:#1565c0;display:none;';
-    overNote.textContent = '{% if current_lang == "am" %}ከ 100,000 ብር በላይ — ባንክ ክፍያ አያስፈልግም። በመላኪያ ጊዜ ይከፈላል።{% else %}Over 100,000 ETB — no bank deposit needed. Pay on delivery.{% endif %}';
+    overNote.textContent = '{% if current_lang == "am" %}ከ 100,000 ብር በላይ የሞባይል ወይም የባንክ ትራንስፈር አያስፈልግም። እቃዎ በእጅዎ ሲደርስ ክፍያውን መፈጸም ይችላሉ።{% else %}Over 100,000 ETB — no mobile or bank transfer needed. You can pay when the items are delivered to you.{% endif %}';
     paySec.parentNode.insertBefore(overNote, paySec);
 
     // Summary and payment box are always derived from the CURRENT cart prices,
@@ -158,8 +158,7 @@ document.addEventListener('DOMContentLoaded', function () {
             html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}${escapeHtml(u)}) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
         });
         const deliveryFee = {{ (site_delivery_fee or 0)|float }};
-        const vatText = {{ vat_label(vat_mode, current_lang)|tojson }};
-        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የእቃዎች ድምር{% else %}Items{% endif %} <small>(${escapeHtml(vatText)})</small></span><span>${total.toFixed(0)} ብር</span></li>`;
+        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የእቃዎች ድምር{% else %}Items{% endif %}</span><span>${total.toFixed(0)} ብር</span></li>`;
         html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የዴሊቨሪ / ማጓጓዣ ክፍያ{% else %}Delivery / transport fee{% endif %}</span><span>${deliveryFee.toFixed(0)} ብር</span></li>`;
         const grand = total + deliveryFee;
         html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${grand.toFixed(0)} ብር</strong></div>`;

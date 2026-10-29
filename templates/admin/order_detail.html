@@ -148,8 +148,7 @@
 
     <div class="detail-card">
         <h3>Payment</h3>
-        <p><strong>Items:</strong> {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር
-            <small>({{ vat_label(order.vat_mode or 'inclusive', 'en') }})</small></p>
+        <p><strong>Items:</strong> {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር</p>
         <p><strong>Delivery fee:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር</p>
         <p><strong>Grand total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
         <p><strong>Required:</strong> {{ 'Yes' if order.payment_required else 'No' }}</p>
@@ -237,7 +236,9 @@
         <tbody>
             {% for item in order.items %}
             <tr>
-                <td>{{ item.product_name }}</td>
+                <td>{{ item.product_name }}
+                    <br><small style="color:#555;">{{ product_vat_label(item.vat_percent, 'en') }}</small>
+                </td>
                 <td>{{ item.weight_kg }} {{ unit_label(item.unit or 'kg', 'en') }}</td>
                 <td>{{ '%.0f'|format(item.unit_price) }} ብር</td>
                 <td>{{ item.quantity }}</td>
@@ -247,8 +248,7 @@
         </tbody>
         <tfoot>
             <tr>
-                <td colspan="4" style="text-align:right;"><strong>Items subtotal</strong>
-                    <small>({{ vat_label(order.vat_mode or 'inclusive', 'en') }})</small></td>
+                <td colspan="4" style="text-align:right;"><strong>Items subtotal</strong></td>
                 <td><strong>{{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር</strong></td>
             </tr>
             <tr>

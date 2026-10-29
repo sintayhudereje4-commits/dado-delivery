@@ -162,12 +162,10 @@ function renderCart() {
 
     saveCart(cart);   // keep the stored prices in line with what is shown
     const deliveryFee = {{ (site_delivery_fee or 0)|float }};
-    const vatText = {{ vat_label(vat_mode, current_lang)|tojson }};
     const grand = total + deliveryFee;
     html += `</tbody></table></div>
         <div class="cart-total" style="line-height:1.6;">
-            <div style="font-size:.95rem;font-weight:500;">{% if current_lang == "am" %}የእቃዎች{% else %}Items{% endif %}: ${total.toFixed(0)} ብር
-                <small style="color:#555;">(${escapeHtml(vatText)})</small></div>
+            <div style="font-size:.95rem;font-weight:500;">{% if current_lang == "am" %}የእቃዎች{% else %}Items{% endif %}: ${total.toFixed(0)} ብር</div>
             <div style="font-size:.95rem;font-weight:500;">{% if current_lang == "am" %}የዴሊቨሪ ክፍያ{% else %}Delivery fee{% endif %}: ${deliveryFee.toFixed(0)} ብር</div>
             <strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${grand.toFixed(0)} ብር</strong>
         </div>`;

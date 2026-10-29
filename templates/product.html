@@ -41,8 +41,8 @@
                         <span class="variant-label">
                             <strong>{{ v.weight_kg }} {{ ul }}</strong>
                             <span class="variant-price">{{ "%.0f"|format(v.price) }} ብር</span>
-                            <span class="vat-badge" style="display:block;font-size:.75rem;font-weight:600;color:{% if vat_mode == 'exempt' %}#1565c0{% else %}#2e7d32{% endif %};">
-                                {{ vat_label(vat_mode, current_lang) }}
+                            <span class="vat-badge" style="display:block;font-size:.75rem;font-weight:600;color:{% if (product.vat_percent or 0) > 0 %}#2e7d32{% else %}#1565c0{% endif %};">
+                                {{ product_vat_label(product.vat_percent, current_lang) }}
                             </span>
                             {% if v.bulk_price and v.bulk_min_qty %}
                                 <span class="bulk-hint">
@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         selected.dataset.unit === 'pcs' ? 'ብዛት' :
                         selected.dataset.unit === 'pack' ? 'ጥቅል' :
                         selected.dataset.unit === 'bag' ? 'ከረጢት' : 'ኪ.ግ',
+            vat_percent: {{ (product.vat_percent or 0)|float }},
             price: unitPrice,
             base_price: basePrice,
             bulk_price: bulkPrice,

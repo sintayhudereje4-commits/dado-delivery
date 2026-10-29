@@ -82,12 +82,30 @@ def sizes_for_unit(unit):
     return list(UNIT_PRESETS.get((unit or 'kg').strip(), WEIGHTS))
 
 
-def vat_label(mode, lang='en'):
-    """Public VAT badge text for prices."""
-    m = (mode or 'inclusive').strip().lower()
-    if m in ('exempt', 'vat_exempt', 'free'):
+def product_vat_label(vat_percent, lang='en'):
+    """Badge for a product price: exempt or inclusive with rate %."""
+    try:
+        pct = float(vat_percent or 0)
+    except (TypeError, ValueError):
+        pct = 0.0
+    if pct <= 0:
         return 'ከቫት ነፃ / VAT Exempt' if lang == 'am' else 'VAT Exempt'
-    return 'ቫት ያካተተ / VAT Inclusive' if lang == 'am' else 'VAT Inclusive'
+    if lang == 'am':
+        return f'ቫት ያካተተ ({pct:g}%) / VAT Inclusive'
+    return f'VAT Inclusive ({pct:g}%)'
+
+
+def vat_label(mode_or_pct, lang='en'):
+    """Compat: accepts percent number or legacy mode string."""
+    if isinstance(mode_or_pct, (int, float)):
+        return product_vat_label(mode_or_pct, lang)
+    m = (str(mode_or_pct or '')).strip().lower()
+    if m in ('exempt', 'vat_exempt', 'free', '0', ''):
+        return product_vat_label(0, lang)
+    try:
+        return product_vat_label(float(m), lang)
+    except (TypeError, ValueError):
+        return product_vat_label(15, lang)
 
 
 def normalize_vat_mode(raw):
@@ -95,6 +113,7 @@ def normalize_vat_mode(raw):
     if m in ('exempt', 'vat_exempt', 'free'):
         return 'exempt'
     return 'inclusive'
+
 
 # ---------------------------------------------------------------------------
 # App configuration
@@ -667,10 +686,10 @@ class SiteSettings(db.Model):
     footer_text_en = db.Column(db.Text, default='Enjoy with Dado Delivery')
     # When True, chat AI replies if admin has not answered recently. Default off.
     ai_chat_enabled = db.Column(db.Boolean, default=False)
-    # VAT: 'inclusive' = listed prices include VAT; 'exempt' = VAT-free goods
-    vat_mode = db.Column(db.String(20), default='inclusive')
-    # Flat delivery / transport fee added on every order (ETB). Shown separately on receipt.
+    # Flat delivery / transport fee (ETB). Managed under Admin → VAT & Delivery.
     delivery_fee = db.Column(db.Float, default=0.0)
+    # Optional default VAT % suggested when creating new products (0 = exempt)
+    default_vat_percent = db.Column(db.Float, default=15.0)
     # Auth page appearance
     auth_logo_path = db.Column(db.String(255), default='')
     auth_primary_color = db.Column(db.String(20), default='#2E7D32')
@@ -712,6 +731,8 @@ class Product(db.Model):
     image_path = db.Column(db.String(255), default='')
     # Measurement unit for variant sizes: kg | L | pcs | pack | bag
     unit = db.Column(db.String(10), default='kg', nullable=False)
+    # VAT rate % included in listed prices. 0 = VAT Exempt. e.g. 15 = VAT Inclusive 15%.
+    vat_percent = db.Column(db.Float, default=0.0)
     is_active = db.Column(db.Boolean, default=True)
     sort_order = db.Column(db.Integer, default=0)
     delivery_min_hours = db.Column(db.Integer, default=2)
@@ -825,6 +846,7 @@ class OrderItem(db.Model):
     product_name = db.Column(db.String(120), nullable=False)
     weight_kg = db.Column(db.Integer, nullable=False)  # size value (kg / L / pcs …)
     unit = db.Column(db.String(10), default='kg')  # snapshot of product.unit at order time
+    vat_percent = db.Column(db.Float, default=0.0)  # snapshot of product VAT % at order time
     unit_price = db.Column(db.Float, nullable=False)
     quantity = db.Column(db.Integer, default=1)
     subtotal = db.Column(db.Float, nullable=False)
@@ -1289,8 +1311,9 @@ def inject_globals():
         'unit_labels': UNIT_LABELS,
         'allowed_units': ALLOWED_UNITS,
         'vat_label': vat_label,
-        'vat_mode': getattr(settings, 'vat_mode', None) or 'inclusive',
+        'product_vat_label': product_vat_label,
         'site_delivery_fee': float(getattr(settings, 'delivery_fee', 0) or 0),
+        'default_vat_percent': float(getattr(settings, 'default_vat_percent', 15) or 0),
     }
 
 
@@ -1466,8 +1489,13 @@ def checkout():
     settings = get_settings()
     items_subtotal = float(total)
     delivery_fee = max(0.0, float(getattr(settings, 'delivery_fee', 0) or 0))
-    vat_mode = normalize_vat_mode(getattr(settings, 'vat_mode', 'inclusive'))
     grand_total = items_subtotal + delivery_fee
+    # Order.vat_mode kept for legacy display: mixed if products differ
+    vat_flags = set()
+    for oi in order_items_data:
+        pct = float(getattr(oi['product'], 'vat_percent', 0) or 0)
+        vat_flags.add('exempt' if pct <= 0 else 'inclusive')
+    vat_mode = 'mixed' if len(vat_flags) > 1 else (next(iter(vat_flags)) if vat_flags else 'inclusive')
 
     mins, maxs = [], []
     for oi in order_items_data:
@@ -1540,7 +1568,8 @@ def checkout():
             total_amount=grand_total,
             vat_mode=vat_mode,
             estimated_delivery=estimated,
-            status='pending',
+            # COD / no prepay (e.g. over 100,000 ETB): accept immediately as confirmed
+            status=('confirmed' if not payment_required else 'pending'),
             payment_required=payment_required,
             payment_status=payment_status,
             transaction_id=transaction_id,
@@ -1578,6 +1607,7 @@ def checkout():
                 ),
                 weight_kg=oi['variant'].weight_kg,
                 unit=(oi['product'].unit or 'kg'),
+                vat_percent=float(getattr(oi['product'], 'vat_percent', 0) or 0),
                 unit_price=oi['unit'],
                 quantity=oi['qty'],
                 subtotal=oi['subtotal']
@@ -1606,20 +1636,40 @@ def checkout():
     })
 
 
-@app.route('/order/success/<order_number>')
-def order_success(order_number):
-    order = Order.query.filter_by(order_number=order_number).first_or_404()
+def _can_view_order(order):
     allowed = session.get('pending_orders') or []
-    # Allow if in this browser session, or logged-in customer owns it, or admin
     cust = get_current_customer()
     ok = order.order_number in allowed
     if cust and order.customer_id == cust.id:
         ok = True
     if current_user.is_authenticated and isinstance(current_user, Admin):
         ok = True
-    if not ok:
+    return ok
+
+
+@app.route('/order/success/<order_number>')
+def order_success(order_number):
+    order = Order.query.filter_by(order_number=order_number).first_or_404()
+    if not _can_view_order(order):
         abort(403)
     return render_template('order_success.html', order=order)
+
+
+@app.route('/api/order/<order_number>/status')
+def api_order_status(order_number):
+    """Lightweight poll for order-success page (1s live refresh, no badge)."""
+    order = Order.query.filter_by(order_number=order_number).first()
+    if not order or not _can_view_order(order):
+        return jsonify({'error': 'forbidden'}), 403
+    return jsonify({
+        'order_number': order.order_number,
+        'status': order.status,
+        'payment_status': order.payment_status,
+        'payment_required': bool(order.payment_required),
+        'payment_note': order.payment_note or '',
+        'estimated_delivery': order.estimated_delivery or '',
+        'total_amount': float(order.total_amount or 0),
+    })
 
 
 @app.route('/files/order/<int:oid>/<kind>')
@@ -2645,6 +2695,13 @@ def _read_product_unit():
     return u if u in ALLOWED_UNITS else 'kg'
 
 
+def _read_product_vat_percent():
+    """VAT % on listed price. 0 = exempt. Max 100."""
+    if request.form.get('vat_exempt'):
+        return 0.0
+    return form_float('vat_percent', 0.0, 0.0, 100.0)
+
+
 @app.route('/admin/products/add', methods=['GET', 'POST'])
 @admin_required
 def admin_product_add():
@@ -2667,6 +2724,7 @@ def admin_product_add():
             description_am=request.form.get('description_am', ''),
             description_en=request.form.get('description_en', ''),
             unit=unit,
+            vat_percent=_read_product_vat_percent(),
             is_active=bool(request.form.get('is_active')),
             sort_order=form_int('sort_order', 0, -10000, 10000),
             delivery_min_hours=d_min,
@@ -2738,6 +2796,7 @@ def admin_product_edit(pid):
         product.description_am = request.form.get('description_am', '')
         product.description_en = request.form.get('description_en', '')
         product.unit = unit
+        product.vat_percent = _read_product_vat_percent()
         product.is_active = bool(request.form.get('is_active'))
         product.sort_order = form_int('sort_order', 0, -10000, 10000)
         product.delivery_min_hours = d_min
@@ -3068,6 +3127,21 @@ def admin_transporters():
     return render_template('admin/transporters.html', transporters=transporters)
 
 
+@app.route('/admin/vat-delivery', methods=['GET', 'POST'])
+@admin_required
+def admin_vat_delivery():
+    """Dedicated page: site delivery fee + default VAT % for new products."""
+    settings = get_settings()
+    if request.method == 'POST':
+        settings.delivery_fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
+        settings.default_vat_percent = form_float('default_vat_percent', 15.0, 0.0, 100.0)
+        db.session.commit()
+        flash(_('VAT & Delivery settings saved'), 'success')
+        return redirect(url_for('admin_vat_delivery'))
+    products = Product.query.filter_by(is_active=True).order_by(Product.sort_order, Product.id).limit(200).all()
+    return render_template('admin/vat_delivery.html', settings=settings, products=products)
+
+
 @app.route('/admin/settings', methods=['GET', 'POST'])
 @admin_required
 def admin_settings():
@@ -3120,8 +3194,6 @@ def admin_settings():
         settings.help_email = request.form.get('help_email', '').strip()[:120]
         settings.help_telegram = request.form.get('help_telegram', '').strip()[:80]
         settings.ai_chat_enabled = bool(request.form.get('ai_chat_enabled'))
-        settings.vat_mode = normalize_vat_mode(request.form.get('vat_mode'))
-        settings.delivery_fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
         settings.footer_text_am = request.form.get('footer_text_am', '')
         settings.footer_text_en = request.form.get('footer_text_en', '')
         settings.auth_primary_color = clean_color(request.form.get('auth_primary_color'), settings.auth_primary_color or '#2E7D32')
@@ -3277,8 +3349,10 @@ def init_db():
             _ensure_column('product', 'unit', "VARCHAR(10) DEFAULT 'kg'")
             _ensure_column('order_item', 'unit', "VARCHAR(10) DEFAULT 'kg'")
             _ensure_column('site_settings', 'ai_chat_enabled', 'BOOLEAN DEFAULT FALSE')
-            _ensure_column('site_settings', 'vat_mode', "VARCHAR(20) DEFAULT 'inclusive'")
             _ensure_column('site_settings', 'delivery_fee', 'FLOAT DEFAULT 0')
+            _ensure_column('site_settings', 'default_vat_percent', 'FLOAT DEFAULT 15')
+            _ensure_column('product', 'vat_percent', 'FLOAT DEFAULT 0')
+            _ensure_column('order_item', 'vat_percent', 'FLOAT DEFAULT 0')
             _ensure_column('order', 'items_subtotal', 'FLOAT DEFAULT 0')
             _ensure_column('order', 'delivery_fee', 'FLOAT DEFAULT 0')
             _ensure_column('order', 'vat_mode', "VARCHAR(20) DEFAULT 'inclusive'")

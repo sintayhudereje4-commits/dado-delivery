@@ -12,21 +12,23 @@
             <strong>Message:</strong> Your order was submitted. Once the delivery time is set, you will see it on <a href="{{ url_for('cart') }}">Cart</a>.
             {% endif %}
         </div>
-        <p><span style="background:#fff3e0;color:#e65100;padding:8px 16px;border-radius:20px;font-weight:700;">Pending</span></p>
+        <p>
+            <span id="statusBadge" style="background:#fff3e0;color:#e65100;padding:8px 16px;border-radius:20px;font-weight:700;">
+                {{ order.status|capitalize }}
+            </span>
+        </p>
         <h1>{% if current_lang == 'am' %}ትዕዛዝ ተልኳል!{% else %}Order Submitted!{% endif %}</h1>
         <p class="order-number">
             {% if current_lang == 'am' %}የትዕዛዝ ቁጥር{% else %}Order Number{% endif %}:
             <strong>{{ order.order_number }}</strong>
         </p>
-        {% if order.estimated_delivery %}
-        <p class="delivery-info">
+        <p id="deliveryInfo" class="delivery-info" {% if not order.estimated_delivery %}hidden{% endif %}>
             {% if current_lang == 'am' %}
-                በ {{ order.estimated_delivery }} ሰዓታት ውስጥ ይደርሳል
+                በ <span id="estHours">{{ order.estimated_delivery or '' }}</span> ሰዓታት ውስጥ ይደርሳል
             {% else %}
-                Estimated delivery within {{ order.estimated_delivery }} hours
+                Estimated delivery within <span id="estHours">{{ order.estimated_delivery or '' }}</span> hours
             {% endif %}
         </p>
-        {% endif %}
         <div class="order-details-box">
             <p><strong>{% if current_lang == 'am' %}ስልክ{% else %}Phone{% endif %}:</strong> {{ order.phone }}</p>
             {% if order.address_text %}
@@ -41,8 +43,14 @@
             {% endif %}
             <p><strong>{% if current_lang == 'am' %}የእቃዎች ድምር{% else %}Items subtotal{% endif %}:</strong>
                 {{ '%.0f'|format(order.items_subtotal or order.total_amount) }} ብር
-                <small style="color:#555;">({{ vat_label(order.vat_mode or 'inclusive', current_lang) }})</small>
             </p>
+            {% if order.items %}
+            <ul style="margin:6px 0 10px 18px;font-size:.9rem;color:#444;text-align:left;display:inline-block;">
+                {% for it in order.items %}
+                <li>{{ it.product_name }} — {{ product_vat_label(it.vat_percent, current_lang) }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
             <p><strong>{% if current_lang == 'am' %}የዴሊቨሪ / ማጓጓዣ ክፍያ{% else %}Delivery / transport fee{% endif %}:</strong>
                 {{ '%.0f'|format(order.delivery_fee or 0) }} ብር
             </p>
@@ -50,31 +58,95 @@
                 {{ '%.0f'|format(order.total_amount) }} ብር
             </p>
         </div>
-        
-        {% if order.payment_required %}
-        <div class="order-details-box" style="margin-top:12px;">
+
+        <div id="paymentBox" class="order-details-box" style="margin-top:12px;{% if not order.payment_required %}display:none;{% endif %}">
             <p><strong>{% if current_lang == 'am' %}የክፍያ ሁኔታ{% else %}Payment status{% endif %}:</strong>
-                {{ order.payment_status }}
+                <span id="payStatus">{{ order.payment_status }}</span>
             </p>
             {% if order.transaction_id %}
             <p>Txn: {{ order.transaction_id }}</p>
             {% endif %}
-            {% if order.payment_note %}
-            <p>{{ order.payment_note }}</p>
-            {% endif %}
-            {% if order.payment_status == 'pending' %}
-            <p style="color:#e65100;">
+            <p id="payNote">{% if order.payment_note %}{{ order.payment_note }}{% endif %}</p>
+            <p id="payPendingMsg" style="color:#e65100;{% if order.payment_status != 'pending' %}display:none;{% endif %}">
                 {% if current_lang == 'am' %}ክፍያዎ በማረጋገጥ ላይ ነው — ከተረጋገጠ በኋላ ትዕዛዝ ይቀጥላል።{% else %}Payment pending verification. The order will continue once confirmed.{% endif %}
             </p>
-            {% elif order.payment_status == 'confirmed' %}
-            <p style="color:#2e7d32;">{% if current_lang == 'am' %}ክፍያ ተረጋግጧል ✓{% else %}Payment confirmed ✓{% endif %}</p>
+            <p id="payOkMsg" style="color:#2e7d32;{% if order.payment_status != 'confirmed' %}display:none;{% endif %}">
+                {% if current_lang == 'am' %}ክፍያ ተረጋግጧል ✓{% else %}Payment confirmed ✓{% endif %}
+            </p>
+        </div>
+
+        {% if not order.payment_required and order.total_amount > prepay_max %}
+        <div class="order-details-box" style="margin-top:12px;background:#e3f2fd;color:#0d47a1;">
+            {% if current_lang == 'am' %}
+            ከ 100,000 ብር በላይ — የሞባይል ወይም የባንክ ትራንስፈር አያስፈልግም። እቃዎ በእጅዎ ሲደርስ ክፍያውን መፈጸም ይችላሉ።
+            {% else %}
+            Over 100,000 ETB — no mobile or bank transfer needed. You can pay when the items are delivered to you.
             {% endif %}
         </div>
         {% endif %}
 
-        <a href="{{ url_for('index') }}" class="btn btn-primary">
+        <a href="{{ url_for('index') }}" class="btn btn-primary" style="margin-top:16px;">
             {% if current_lang == 'am' %}ወደ መነሻ{% else %}Back to Home{% endif %}
         </a>
     </div>
 </section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  var orderNo = {{ order.order_number|tojson }};
+  var badge = document.getElementById('statusBadge');
+  var colors = {
+    pending: {bg:'#fff3e0', fg:'#e65100'},
+    confirmed: {bg:'#e8f5e9', fg:'#2e7d32'},
+    preparing: {bg:'#e3f2fd', fg:'#1565c0'},
+    out_for_delivery: {bg:'#f3e5f5', fg:'#6a1b9a'},
+    delivered: {bg:'#e8f5e9', fg:'#1b5e20'},
+    cancelled: {bg:'#ffebee', fg:'#c62828'}
+  };
+  function paint(status) {
+    if (!badge) return;
+    var c = colors[status] || colors.pending;
+    badge.style.background = c.bg;
+    badge.style.color = c.fg;
+    badge.textContent = (status || 'pending').replace(/_/g, ' ');
+    badge.style.textTransform = 'capitalize';
+  }
+  paint({{ order.status|tojson }});
+
+  function poll() {
+    if (document.visibilityState !== 'visible') return;
+    fetch('/api/order/' + encodeURIComponent(orderNo) + '/status', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    }).then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) return;
+        paint(d.status);
+        var est = document.getElementById('estHours');
+        var di = document.getElementById('deliveryInfo');
+        if (d.estimated_delivery && est && di) {
+          est.textContent = d.estimated_delivery;
+          di.hidden = false;
+        }
+        var payBox = document.getElementById('paymentBox');
+        if (payBox) {
+          payBox.style.display = d.payment_required ? '' : 'none';
+          var ps = document.getElementById('payStatus');
+          if (ps) ps.textContent = d.payment_status || '';
+          var pn = document.getElementById('payNote');
+          if (pn) pn.textContent = d.payment_note || '';
+          var pp = document.getElementById('payPendingMsg');
+          var po = document.getElementById('payOkMsg');
+          if (pp) pp.style.display = d.payment_status === 'pending' ? '' : 'none';
+          if (po) po.style.display = d.payment_status === 'confirmed' ? '' : 'none';
+        }
+      }).catch(function(){});
+  }
+  // Silent 1s live refresh — no visible "Live" label
+  setInterval(poll, 1000);
+  setTimeout(poll, 400);
+})();
+</script>
 {% endblock %}
