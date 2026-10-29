@@ -39,6 +39,27 @@
         {% endwith %}
         {% block content %}{% endblock %}
     </main>
+
+    {# Visible live auto-refresh badge (Orders / Support / Customers / Dashboard) #}
+    <div id="liveRefreshBadge" hidden
+         style="position:fixed;bottom:18px;right:18px;z-index:9999;
+                background:#1b5e20;color:#fff;padding:8px 14px;border-radius:24px;
+                font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);
+                display:flex;align-items:center;gap:8px;font-family:Inter,sans-serif;">
+      <span id="liveDot" style="width:10px;height:10px;border-radius:50%;background:#69f0ae;
+            box-shadow:0 0 0 0 rgba(105,240,174,.7);animation:livePulse 1.5s infinite;"></span>
+      <span id="liveText">Live · every 5s</span>
+    </div>
+    <style>
+      @keyframes livePulse {
+        0% { box-shadow: 0 0 0 0 rgba(105,240,174,.6); }
+        70% { box-shadow: 0 0 0 8px rgba(105,240,174,0); }
+        100% { box-shadow: 0 0 0 0 rgba(105,240,174,0); }
+      }
+      #liveRefreshBadge.updating { background:#e65100; }
+      #liveRefreshBadge.paused { background:#546e7a; }
+      #liveRefreshBadge.paused #liveDot { animation: none; background:#b0bec5; }
+    </style>
 <script>
 (function(){
   var tok = {{ csrf_token()|tojson }};
@@ -50,24 +71,97 @@
     }
   });
 
-  // Soft auto-refresh only on dashboard & orders (every 30s), and only when tab is visible.
-  // Avoids killing scroll/selection and reduces server load vs previous 3s full reload.
+  // Live auto-refresh every 5s — Orders, Support, Customers, Dashboard
   var ep = '{{ request.endpoint or "" }}';
-  var softPages = ['admin_dashboard', 'admin_orders', 'admin_support'];
-  if (softPages.indexOf(ep) !== -1) {
-    setInterval(function(){
-      if (document.visibilityState !== 'visible') return;
-      // Don't wipe search boxes / forms the admin is filling in
-      var ae = document.activeElement;
-      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
-      var dirty = false;
-      document.querySelectorAll('input[type="search"], input[name="q"], input[name="search"]').forEach(function(el){
-        if ((el.value || '').trim()) dirty = true;
-      });
-      if (dirty) return;
-      location.reload();
-    }, 30000);
+  var softPages = ['admin_dashboard', 'admin_orders', 'admin_support', 'admin_customers'];
+  if (softPages.indexOf(ep) === -1) return;
+
+  var badge = document.getElementById('liveRefreshBadge');
+  var liveText = document.getElementById('liveText');
+  var INTERVAL_MS = 5000;
+  var lastCheck = Date.now();
+  var fingerprint = '';
+
+  if (badge) badge.hidden = false;
+
+  function setBadge(state, msg) {
+    if (!badge) return;
+    badge.classList.remove('updating', 'paused');
+    if (state) badge.classList.add(state);
+    if (liveText && msg) liveText.textContent = msg;
   }
+
+  function secondsAgo() {
+    return Math.max(0, Math.round((Date.now() - lastCheck) / 1000));
+  }
+
+  function isPaused() {
+    if (document.visibilityState !== 'visible') return 'tab';
+    var ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return 'typing';
+    var dirty = false;
+    document.querySelectorAll('input[type="search"], input[name="q"], input[name="search"]').forEach(function(el){
+      if ((el.value || '').trim()) dirty = true;
+    });
+    if (dirty) return 'search';
+    return null;
+  }
+
+  function tickLabel() {
+    var p = isPaused();
+    if (p === 'tab') { setBadge('paused', 'Paused (tab hidden)'); return; }
+    if (p === 'typing') { setBadge('paused', 'Paused (typing…)'); return; }
+    if (p === 'search') { setBadge('paused', 'Paused (search active)'); return; }
+    setBadge('', 'Live · checked ' + secondsAgo() + 's ago');
+  }
+
+  function poll() {
+    var p = isPaused();
+    if (p) { tickLabel(); return; }
+
+    setBadge('updating', 'Checking…');
+    var url = '/admin/api/live?page=' + encodeURIComponent(ep);
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('status')) url += '&status=' + encodeURIComponent(params.get('status'));
+      if (params.get('q')) url += '&q=' + encodeURIComponent(params.get('q'));
+    } catch (e) {}
+
+    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function(r){
+        if (r.status === 401 || r.status === 403) {
+          window.location.href = '/admin/login';
+          return null;
+        }
+        if (!r.ok) throw new Error('bad status');
+        return r.json();
+      })
+      .then(function(data){
+        if (!data || !data.fp) return;
+        lastCheck = Date.now();
+        if (!fingerprint) {
+          fingerprint = data.fp;
+          setBadge('', 'Live · every 5s');
+          return;
+        }
+        if (data.fp !== fingerprint) {
+          fingerprint = data.fp;
+          setBadge('updating', 'New data — updating…');
+          location.reload();
+          return;
+        }
+        setBadge('', 'Live · up to date');
+      })
+      .catch(function(){
+        setBadge('paused', 'Live · retrying…');
+      });
+  }
+
+  setInterval(tickLabel, 1000);
+  setInterval(poll, INTERVAL_MS);
+  setTimeout(poll, 600);
+  document.addEventListener('visibilitychange', tickLabel);
+  tickLabel();
 })();
 </script>
 </body>

@@ -50,14 +50,6 @@
                             </a>
                         </div>
                         <p id="gpsStatus" class="map-hint" style="color:#1565c0;"></p>
-                        <div class="form-group" style="margin-top:8px;">
-                            <label style="font-size:0.9rem;">{% if current_lang == 'am' %}ወይም ከ Google Map የመጣ coordinates ይለጥፉ{% else %}Or paste coordinates from Google Maps{% endif %}</label>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                <input type="text" id="pasteCoords" placeholder="9.03, 38.74" style="flex:1;min-width:160px;padding:10px;border:1px solid #ccc;border-radius:8px;">
-                                <button type="button" class="btn btn-outline btn-sm" id="btnPasteCoords">{% if current_lang == 'am' %}አስቀምጥ{% else %}Apply{% endif %}</button>
-                            </div>
-                            <p class="map-hint">{% if current_lang == 'am' %}Google Maps → ፒኑን በረጅሙ ይጫኑ → coordinates ይታያሉ → ቅዱ (Share አጭር link አይሰጥም){% else %}Google Maps → long-press the pin → coordinates appear → copy them (Share gives a short link, not coordinates){% endif %}</p>
-                        </div>
                         <div id="mapPicker"></div>
                         <p id="coordDisplay" class="coord-display"></p>
                         <input type="hidden" id="latitude" name="latitude">
@@ -165,8 +157,14 @@ document.addEventListener('DOMContentLoaded', function () {
             const u = item.unit_label || item.unit || 'kg';
             html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}${escapeHtml(u)}) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
         });
-        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${total.toFixed(0)} ብር</strong></div>`;
+        const deliveryFee = {{ (site_delivery_fee or 0)|float }};
+        const vatText = {{ vat_label(vat_mode, current_lang)|tojson }};
+        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የእቃዎች ድምር{% else %}Items{% endif %} <small>(${escapeHtml(vatText)})</small></span><span>${total.toFixed(0)} ብር</span></li>`;
+        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የዴሊቨሪ / ማጓጓዣ ክፍያ{% else %}Delivery / transport fee{% endif %}</span><span>${deliveryFee.toFixed(0)} ብር</span></li>`;
+        const grand = total + deliveryFee;
+        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${grand.toFixed(0)} ብር</strong></div>`;
         document.getElementById('orderSummary').innerHTML = html;
+        total = grand;
 
         needPay = forcePay || (total >= PREPAY_MIN && total <= PREPAY_MAX);
         paySec.style.display = needPay ? 'block' : 'none';
@@ -212,7 +210,7 @@ document.addEventListener('DOMContentLoaded', function () {
         mp.style.height = 'auto';
         mp.style.padding = '12px';
         mp.style.background = '#fff3e0';
-        mp.textContent = '{% if current_lang == "am" %}ካርታው አልተጫነም — "የእኔን ቦታ አግኝ" ይጫኑ ወይም ከ Google Maps coordinates ይለጥፉ።{% else %}The map could not be loaded — use "Use my location" or paste coordinates from Google Maps.{% endif %}';
+        mp.textContent = '{% if current_lang == "am" %}ካርታው አልተጫነም — "የእኔን ቦታ አግኝ" ይጫኑ።{% else %}The map could not be loaded — use "Use my location".{% endif %}';
     }
 
     function updateGoogleLink(a, b) {
@@ -263,7 +261,7 @@ document.addEventListener('DOMContentLoaded', function () {
             tileErrors++;
             if (tileErrors === 3 && gpsStatus) {
                 gpsStatus.style.color = '#e65100';
-                gpsStatus.textContent = '{% if current_lang == "am" %}ካርታ tiles አልተጫኑም — GPS ወይም coordinates ይጠቀሙ። (MAP_TILES_URL / API key ይፈትሹ){% else %}Map tiles failed to load — use GPS or paste coordinates. (Check MAP_TILES_URL / API key){% endif %}';
+                gpsStatus.textContent = '{% if current_lang == "am" %}ካርታ tiles አልተጫኑም — GPS ይጠቀሙ። (MAP_TILES_URL / API key ይፈትሹ){% else %}Map tiles failed to load — use GPS. (Check MAP_TILES_URL / API key){% endif %}';
             }
         });
     }
@@ -273,13 +271,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
             gpsStatus.style.color = '#e65100';
             gpsStatus.innerHTML = '{% if current_lang == "am" %}' +
-                '⚠ በስልክ ላይ GPS ለ http://IP አይሰራም (የአሳሽ ደንብ)።<br>' +
-                '1) ካርታ ላይ ፒኑን ይጎትቱ · ወይም<br>' +
-                '2) Google Maps ክፈቱ → ቦታዎን ይምረጡ → Share → coordinates ቅዱ → ከታች ይለጥፉ' +
+                '⚠ በስልክ ላይ GPS ለ http://IP አይሰራም (የአሳሽ ደንብ)። ካርታ ላይ ፒኑን ይጎትቱ።' +
                 '{% else %}' +
-                '⚠ Mobile browsers block GPS on http://IP addresses.<br>' +
-                '1) Drag the pin on the map, or<br>' +
-                '2) Open Google Maps → pick place → Share → copy coordinates → paste below' +
+                '⚠ Mobile browsers block GPS on http://IP addresses. Drag the pin on the map.' +
                 '{% endif %}';
             return;
         }
@@ -293,12 +287,12 @@ document.addEventListener('DOMContentLoaded', function () {
             function (pos) {
                 setCoords(pos.coords.latitude, pos.coords.longitude, 'gps', true, pos.coords.accuracy);
                 gpsStatus.style.color = '#2e7d32';
-                gpsStatus.textContent = '{% if current_lang == "am" %}✓ ቦታዎ ተገኝቷል (ትክክለኛነት ~' + Math.round(pos.coords.accuracy || 0) + 'm) — Google Map ላይ ያረጋግጡ{% else %}✓ Location found (~' + Math.round(pos.coords.accuracy || 0) + 'm) — verify on Google Maps{% endif %}';
+                gpsStatus.textContent = '{% if current_lang == "am" %}✓ ቦታዎ ተገኝቷል (ትክክለኛነት ~' + Math.round(pos.coords.accuracy || 0) + 'm){% else %}✓ Location found (~' + Math.round(pos.coords.accuracy || 0) + 'm){% endif %}';
             },
             function (err) {
                 gpsStatus.style.color = '#e65100';
                 var code = err && err.code;
-                var tip = '{% if current_lang == "am" %}ፒኑን ይጎትቱ ወይም ከ Google Map coordinates ይለጥፉ{% else %}Drag the pin or paste coordinates from Google Maps{% endif %}';
+                var tip = '{% if current_lang == "am" %}ፒኑን ይጎትቱ{% else %}Drag the pin on the map{% endif %}';
                 if (code === 1) {
                     gpsStatus.textContent = '{% if current_lang == "am" %}ቦታ ፈቃድ ተከልክሏል — በአሳሽ Settings → Location Allow ያድርጉ። {% else %}Permission denied — enable Location in browser Settings. {% endif %}' + tip;
                 } else if (code === 3) {
@@ -312,40 +306,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     document.getElementById('btnGps').addEventListener('click', requestGps);
 
-    document.getElementById('btnPasteCoords').addEventListener('click', function () {
-        var raw = (document.getElementById('pasteCoords').value || '').trim().replace(/\s+/g, ' ');
-        // accept "9.03, 38.74" or "9.03 38.74" or maps URL with @lat,lng or !3dLAT!4dLNG
-        var m = raw.match(/(-?\d+\.\d+)\s*[,\s]\s*(-?\d+\.\d+)/);
-        if (!m) {
-            m = raw.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-        }
-        if (!m) {
-            m = raw.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-        }
-        if (!m) {
-            gpsStatus.style.color = '#c62828';
-            gpsStatus.textContent = '{% if current_lang == "am" %}ትክክለኛ coordinates ያስገቡ (ምሳሌ 9.03, 38.74){% else %}Enter valid coordinates (e.g. 9.03, 38.74){% endif %}';
-            return;
-        }
-        var a = parseFloat(m[1]), b = parseFloat(m[2]);
-        if (isNaN(a) || isNaN(b) || Math.abs(a) > 90 || Math.abs(b) > 180) {
-            gpsStatus.style.color = '#c62828';
-            gpsStatus.textContent = '{% if current_lang == "am" %}ትክክለኛ coordinates ያስገቡ (ምሳሌ 9.03, 38.74){% else %}Enter valid coordinates (e.g. 9.03, 38.74){% endif %}';
-            return;
-        }
-        setCoords(a, b, 'manual');
-        gpsStatus.style.color = '#2e7d32';
-        gpsStatus.textContent = '{% if current_lang == "am" %}✓ Coordinates ተቀምጠዋል{% else %}✓ Coordinates applied{% endif %}';
-    });
-
     // Do NOT auto-request GPS on page load — many users deny the prompt.
-    // User must click the GPS button. Show a gentle hint instead.
     if (!(window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
         gpsStatus.style.color = '#e65100';
         gpsStatus.innerHTML = '{% if current_lang == "am" %}' +
-            '⚠ በስልክ (http://IP) GPS አይሰራም። ፒኑን ይጎትቱ ወይም Google Maps coordinates ይለጥፉ።' +
+            '⚠ በስልክ (http://IP) GPS አይሰራም። ካርታ ላይ ፒኑን ይጎትቱ።' +
             '{% else %}' +
-            '⚠ On phone (http://IP) GPS is blocked. Drag the pin or paste Google Maps coordinates.' +
+            '⚠ On phone (http://IP) GPS is blocked. Drag the pin on the map.' +
             '{% endif %}';
     } else {
         gpsStatus.textContent = '{% if current_lang == "am" %}የ GPS ቁልፉን ይጫኑ ወይም ፒኑን ይጎትቱ{% else %}Click the GPS button or drag the pin{% endif %}';

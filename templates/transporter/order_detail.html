@@ -69,7 +69,10 @@
                     <span class="paid">No cash to collect (order under {{ prepay_min }} ብር) — deliver only / ገንዘብ አይሰበስቡ</span>
                 {% endif %}
             </p>
-            <p><strong>Total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+            <p><strong>Items:</strong> {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር
+                <small>({{ vat_label(order.vat_mode or 'inclusive', 'en') }})</small></p>
+            <p><strong>Delivery fee:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር</p>
+            <p><strong>Grand total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
             {% if order.latitude and order.longitude and not closed %}
             <p>
                 <a href="https://www.google.com/maps?q={{ order.latitude }},{{ order.longitude }}" target="_blank" rel="noopener">Open in Google Maps</a>
@@ -115,6 +118,11 @@
                 {% endfor %}
                 </tbody>
             </table>
+            <p style="margin-top:10px;font-size:.9rem;">
+                Items {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር
+                + Delivery {{ '%.0f'|format(order.delivery_fee or 0) }} ብር
+                = <strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong>
+            </p>
         </div>
 
         {% if not closed %}

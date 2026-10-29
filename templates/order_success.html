@@ -39,7 +39,16 @@
                 </a>
             </p>
             {% endif %}
-            <p><strong>{% if current_lang == 'am' %}ጠቅላላ{% else %}Total{% endif %}:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+            <p><strong>{% if current_lang == 'am' %}የእቃዎች ድምር{% else %}Items subtotal{% endif %}:</strong>
+                {{ '%.0f'|format(order.items_subtotal or order.total_amount) }} ብር
+                <small style="color:#555;">({{ vat_label(order.vat_mode or 'inclusive', current_lang) }})</small>
+            </p>
+            <p><strong>{% if current_lang == 'am' %}የዴሊቨሪ / ማጓጓዣ ክፍያ{% else %}Delivery / transport fee{% endif %}:</strong>
+                {{ '%.0f'|format(order.delivery_fee or 0) }} ብር
+            </p>
+            <p style="font-size:1.1rem;"><strong>{% if current_lang == 'am' %}ጠቅላላ{% else %}Total{% endif %}:</strong>
+                {{ '%.0f'|format(order.total_amount) }} ብር
+            </p>
         </div>
         
         {% if order.payment_required %}

@@ -41,6 +41,9 @@
                         <span class="variant-label">
                             <strong>{{ v.weight_kg }} {{ ul }}</strong>
                             <span class="variant-price">{{ "%.0f"|format(v.price) }} ብር</span>
+                            <span class="vat-badge" style="display:block;font-size:.75rem;font-weight:600;color:{% if vat_mode == 'exempt' %}#1565c0{% else %}#2e7d32{% endif %};">
+                                {{ vat_label(vat_mode, current_lang) }}
+                            </span>
                             {% if v.bulk_price and v.bulk_min_qty %}
                                 <span class="bulk-hint">
                                     {% if current_lang == 'am' %}≥{{ v.bulk_min_qty }} ፍሬ → {{ "%.0f"|format(v.bulk_price) }} ብር{% else %}≥{{ v.bulk_min_qty }} pcs → {{ "%.0f"|format(v.bulk_price) }} ብር{% endif %}

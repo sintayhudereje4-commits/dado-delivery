@@ -82,6 +82,20 @@ def sizes_for_unit(unit):
     return list(UNIT_PRESETS.get((unit or 'kg').strip(), WEIGHTS))
 
 
+def vat_label(mode, lang='en'):
+    """Public VAT badge text for prices."""
+    m = (mode or 'inclusive').strip().lower()
+    if m in ('exempt', 'vat_exempt', 'free'):
+        return 'ከቫት ነፃ / VAT Exempt' if lang == 'am' else 'VAT Exempt'
+    return 'ቫት ያካተተ / VAT Inclusive' if lang == 'am' else 'VAT Inclusive'
+
+
+def normalize_vat_mode(raw):
+    m = (raw or 'inclusive').strip().lower()
+    if m in ('exempt', 'vat_exempt', 'free'):
+        return 'exempt'
+    return 'inclusive'
+
 # ---------------------------------------------------------------------------
 # App configuration
 # ---------------------------------------------------------------------------
@@ -651,6 +665,12 @@ class SiteSettings(db.Model):
     help_telegram = db.Column(db.String(80), default='+251900000000')  # phone or @username
     footer_text_am = db.Column(db.Text, default='በDado Delivery ይደሰቱ')
     footer_text_en = db.Column(db.Text, default='Enjoy with Dado Delivery')
+    # When True, chat AI replies if admin has not answered recently. Default off.
+    ai_chat_enabled = db.Column(db.Boolean, default=False)
+    # VAT: 'inclusive' = listed prices include VAT; 'exempt' = VAT-free goods
+    vat_mode = db.Column(db.String(20), default='inclusive')
+    # Flat delivery / transport fee added on every order (ETB). Shown separately on receipt.
+    delivery_fee = db.Column(db.Float, default=0.0)
     # Auth page appearance
     auth_logo_path = db.Column(db.String(255), default='')
     auth_primary_color = db.Column(db.String(20), default='#2E7D32')
@@ -767,7 +787,11 @@ class Order(db.Model):
     location_accuracy_m = db.Column(db.Float, nullable=True)  # GPS accuracy in meters if provided
     status = db.Column(db.String(30), default='pending')  # pending, confirmed, preparing, out_for_delivery, delivered, cancelled
     notes = db.Column(db.Text, default='')
+    # items_subtotal = sum of line items; delivery_fee separate; total = both
+    items_subtotal = db.Column(db.Float, default=0.0)
+    delivery_fee = db.Column(db.Float, default=0.0)
     total_amount = db.Column(db.Float, default=0.0)
+    vat_mode = db.Column(db.String(20), default='inclusive')  # snapshot at order time
     estimated_delivery = db.Column(db.String(80), default='')
     # Payment (for totals 100–100000 ETB)
     payment_required = db.Column(db.Boolean, default=False)
@@ -1264,6 +1288,9 @@ def inject_globals():
         'unit_label': unit_label,
         'unit_labels': UNIT_LABELS,
         'allowed_units': ALLOWED_UNITS,
+        'vat_label': vat_label,
+        'vat_mode': getattr(settings, 'vat_mode', None) or 'inclusive',
+        'site_delivery_fee': float(getattr(settings, 'delivery_fee', 0) or 0),
     }
 
 
@@ -1437,6 +1464,11 @@ def checkout():
 
     # Auto-estimate from product settings (admin can still override later)
     settings = get_settings()
+    items_subtotal = float(total)
+    delivery_fee = max(0.0, float(getattr(settings, 'delivery_fee', 0) or 0))
+    vat_mode = normalize_vat_mode(getattr(settings, 'vat_mode', 'inclusive'))
+    grand_total = items_subtotal + delivery_fee
+
     mins, maxs = [], []
     for oi in order_items_data:
         p = oi['product']
@@ -1450,7 +1482,8 @@ def checkout():
     else:
         estimated = ''
 
-    payment_required = PREPAY_MIN <= total <= PREPAY_MAX
+    # Prepay threshold uses grand total (items + delivery)
+    payment_required = PREPAY_MIN <= grand_total <= PREPAY_MAX
     payment_status = 'not_required'
     receipt_path = ''
     bank_id = None
@@ -1461,14 +1494,14 @@ def checkout():
         bank_id = safe_int(data.get('bank_account_id'), 0)
         bank = db.session.get(BankAccount, bank_id) if bank_id else None
         if not bank or not bank.is_active:
-            return _json_error(_('Please select a bank account'), code='payment_required', total=total)
+            return _json_error(_('Please select a bank account'), code='payment_required', total=grand_total)
         upload = request.files.get('receipt')
         if upload and upload.filename:
             receipt_path = save_image(upload, 'receipt', private=True)
             if not receipt_path:
                 return _json_error(_('The receipt must be a valid JPG, PNG, GIF or WEBP image'))
         if not transaction_id and not receipt_path:
-            return _json_error(_('Send transaction ID or receipt photo'), code='payment_required', total=total)
+            return _json_error(_('Send transaction ID or receipt photo'), code='payment_required', total=grand_total)
         # Warn (soft) if same transaction ID was already used on another order
         if transaction_id:
             dup = Order.query.filter(
@@ -1502,7 +1535,10 @@ def checkout():
             location_method=location_method,
             location_accuracy_m=loc_acc,
             notes=notes,
-            total_amount=total,
+            items_subtotal=items_subtotal,
+            delivery_fee=delivery_fee,
+            total_amount=grand_total,
+            vat_mode=vat_mode,
             estimated_delivery=estimated,
             status='pending',
             payment_required=payment_required,
@@ -1838,24 +1874,25 @@ def chat_send():
     db.session.flush()
 
     ai_payload = None
-    # AI only if admin has not replied in last 30 minutes
-    last_admin = ChatMessage.query.filter_by(session_id=chat.id, sender='admin').order_by(
-        ChatMessage.created_at.desc()
-    ).first()
-    admin_active = bool(last_admin and last_admin.created_at and
-                        (utcnow() - last_admin.created_at).total_seconds() < 1800)
-    if not admin_active:
-        settings = get_settings()
-        ai_text = ai_help_reply(message, settings)
-        ai_msg = ChatMessage(session_id=chat.id, sender='ai', message=ai_text)
-        db.session.add(ai_msg)
-        db.session.flush()  # assigns ai_msg.id so the browser can de-duplicate it when polling
-        ai_payload = {
-            'id': ai_msg.id,
-            'sender': 'ai',
-            'message': ai_msg.message,
-            'created_at': to_addis(ai_msg.created_at or utcnow()).strftime('%H:%M')
-        }
+    # AI only when admin enabled it in Settings AND admin has not replied in last 30 min
+    settings = get_settings()
+    if getattr(settings, 'ai_chat_enabled', False):
+        last_admin = ChatMessage.query.filter_by(session_id=chat.id, sender='admin').order_by(
+            ChatMessage.created_at.desc()
+        ).first()
+        admin_active = bool(last_admin and last_admin.created_at and
+                            (utcnow() - last_admin.created_at).total_seconds() < 1800)
+        if not admin_active:
+            ai_text = ai_help_reply(message, settings)
+            ai_msg = ChatMessage(session_id=chat.id, sender='ai', message=ai_text)
+            db.session.add(ai_msg)
+            db.session.flush()  # assigns ai_msg.id so the browser can de-duplicate it when polling
+            ai_payload = {
+                'id': ai_msg.id,
+                'sender': 'ai',
+                'message': ai_msg.message,
+                'created_at': to_addis(ai_msg.created_at or utcnow()).strftime('%H:%M')
+            }
     chat.updated_at = utcnow()
     db.session.commit()
 
@@ -2395,12 +2432,20 @@ def transporter_delivery_receipt(oid):
 # ---------------------------------------------------------------------------
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
-    if current_user.is_authenticated and isinstance(current_user, Admin):
-        nxt = request.args.get('next')
-        return redirect(nxt if is_safe_path(nxt) else url_for('admin_dashboard'))
+    # Always require credentials — if already logged in as admin, still show form
+    # unless they just logged in (POST). Non-admin sessions are cleared first.
+    if request.method == 'GET':
+        if current_user.is_authenticated and not isinstance(current_user, Admin):
+            logout_user()
+            session.clear()
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()[:80]
-        password = request.form.get('password', '')
+        # Support both new field names (admin_username) and legacy (username)
+        username = (
+            request.form.get('admin_username')
+            or request.form.get('username')
+            or ''
+        ).strip()[:80]
+        password = request.form.get('admin_password') or request.form.get('password') or ''
         if login_blocked('admin', username):
             flash(_('Too many failed attempts. Please try again in 15 minutes.'), 'error')
             return render_template('admin/login.html'), 429
@@ -2451,6 +2496,70 @@ def admin_dashboard():
                            total_transporters=total_transporters,
                            unassigned_orders=unassigned_orders,
                            recent_orders=recent_orders)
+
+
+@app.route('/admin/api/live')
+@admin_required
+def admin_api_live():
+    """Lightweight fingerprint for admin list pages (poll every 5s).
+
+    Returns a short hash of counts + latest ids so the browser only reloads
+    when something actually changed.
+    """
+    import hashlib
+    page = (request.args.get('page') or '').strip()
+    parts = []
+
+    if page == 'admin_orders':
+        status = (request.args.get('status') or '').strip()
+        q = (request.args.get('q') or '').strip()[:80]
+        query = Order.query
+        if status:
+            query = query.filter_by(status=status)
+        if q:
+            like = f'%{q}%'
+            query = query.filter(or_(
+                Order.order_number.ilike(like),
+                Order.phone.ilike(like),
+                Order.customer_name.ilike(like),
+                Order.transaction_id.ilike(like),
+            ))
+        total = query.count()
+        latest = query.order_by(Order.updated_at.desc(), Order.id.desc()).limit(5).all()
+        parts.append(f'o:{total}')
+        for o in latest:
+            parts.append(f'{o.id}:{o.status}:{o.payment_status}:{o.updated_at}')
+    elif page == 'admin_support':
+        open_req = SupportRequest.query.filter_by(status='open').count()
+        chats = ChatSession.query.count()
+        open_chats = ChatSession.query.filter_by(status='open').count()
+        last_chat = ChatSession.query.order_by(ChatSession.updated_at.desc()).first()
+        last_req = SupportRequest.query.order_by(SupportRequest.created_at.desc()).first()
+        parts.append(f'sr:{open_req}:c:{chats}:oc:{open_chats}')
+        if last_chat:
+            parts.append(f'ch:{last_chat.id}:{last_chat.updated_at}:{last_chat.status}')
+        if last_req:
+            parts.append(f'rq:{last_req.id}:{last_req.status}:{last_req.created_at}')
+    elif page == 'admin_customers':
+        total = Customer.query.count()
+        latest = Customer.query.order_by(Customer.created_at.desc()).limit(5).all()
+        parts.append(f'cu:{total}')
+        for c in latest:
+            parts.append(f'{c.id}:{c.is_active}:{c.created_at}')
+    else:
+        # dashboard default
+        total_orders = Order.query.count()
+        pending = Order.query.filter_by(status='pending').count()
+        open_sup = SupportRequest.query.filter_by(status='open').count()
+        open_chats = ChatSession.query.filter_by(status='open').count()
+        last_order = Order.query.order_by(Order.updated_at.desc()).first()
+        parts.append(f'd:{total_orders}:{pending}:{open_sup}:{open_chats}')
+        if last_order:
+            parts.append(f'lo:{last_order.id}:{last_order.status}:{last_order.updated_at}')
+
+    raw = '|'.join(str(p) for p in parts)
+    fp = hashlib.sha256(raw.encode('utf-8', errors='ignore')).hexdigest()[:20]
+    return jsonify({'fp': fp, 'page': page or 'admin_dashboard'})
 
 
 
@@ -3010,6 +3119,9 @@ def admin_settings():
         settings.help_phone = request.form.get('help_phone', '').strip()[:30]
         settings.help_email = request.form.get('help_email', '').strip()[:120]
         settings.help_telegram = request.form.get('help_telegram', '').strip()[:80]
+        settings.ai_chat_enabled = bool(request.form.get('ai_chat_enabled'))
+        settings.vat_mode = normalize_vat_mode(request.form.get('vat_mode'))
+        settings.delivery_fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
         settings.footer_text_am = request.form.get('footer_text_am', '')
         settings.footer_text_en = request.form.get('footer_text_en', '')
         settings.auth_primary_color = clean_color(request.form.get('auth_primary_color'), settings.auth_primary_color or '#2E7D32')
@@ -3164,9 +3276,15 @@ def init_db():
         try:
             _ensure_column('product', 'unit', "VARCHAR(10) DEFAULT 'kg'")
             _ensure_column('order_item', 'unit', "VARCHAR(10) DEFAULT 'kg'")
+            _ensure_column('site_settings', 'ai_chat_enabled', 'BOOLEAN DEFAULT FALSE')
+            _ensure_column('site_settings', 'vat_mode', "VARCHAR(20) DEFAULT 'inclusive'")
+            _ensure_column('site_settings', 'delivery_fee', 'FLOAT DEFAULT 0')
+            _ensure_column('order', 'items_subtotal', 'FLOAT DEFAULT 0')
+            _ensure_column('order', 'delivery_fee', 'FLOAT DEFAULT 0')
+            _ensure_column('order', 'vat_mode', "VARCHAR(20) DEFAULT 'inclusive'")
         except Exception as e:
             db.session.rollback()
-            print('unit migrate note:', e)
+            print('unit/ai/vat migrate note:', e)
         try:
             for col, ddl in [
                 ('delivery_receipt_path', "VARCHAR(255) DEFAULT ''"),

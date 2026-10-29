@@ -37,7 +37,8 @@
             </div>
             <div class="form-group">
                 <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
-                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx">
+                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx"
+                       autocomplete="tel" inputmode="tel" id="register_phone">
             </div>
             <div class="form-group">
                 <label>{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>

@@ -1,5 +1,13 @@
 # የተደረጉ ማስተካከያዎች (Changes)
 
+## 2026-10-29 — AI toggle, checkout, login separation
+- **Chat AI**: በነባሪ ጠፍቷል፤ Admin → Settings ላይ ON/OFF (ሲበራ ብቻ AI ይመልሳል)
+- **Checkout**: "paste coordinates from Google Maps" ተወግዷል (GPS + ካርታ ፒን ብቻ)
+- **Admin login**: ሁልጊዜ password ይጠይቃል፤ የተለየ field names (`admin_username` / `admin_password`)
+- **Customer / Transporter login**: የተለየ ids + autocomplete — browser admin credentials አያስገባም
+- **Qty**: native ↑↓ spinners ተደብቀዋል
+- **Map CSP**: MapTiler / Mapbox / Esri tiles ተፈቅደዋል
+
 ## 2026-10-28 — የመለኪያ አሃድ (Unit of measure)
 - **ምርት unit**: እያንዳንዱ ምርት `kg` / `L` / `pcs` / `pack` / `bag` ሊኖረው ይችላል
 - **ዘይት** → ሊትር (1, 3, 5, 10, 20 L)

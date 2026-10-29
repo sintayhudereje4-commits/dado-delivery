@@ -31,15 +31,18 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        <form method="POST">
+        <form method="POST" id="transporterLoginForm" autocomplete="on">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {# Separate field ids so browser does not mix with customer/admin logins #}
             <div class="form-group">
-                <label>Phone number</label>
-                <input type="tel" name="phone" required placeholder="09xxxxxxxx" autofocus>
+                <label for="transporter_phone">Transporter phone</label>
+                <input type="tel" id="transporter_phone" name="phone" required
+                       placeholder="09xxxxxxxx" autofocus autocomplete="tel" inputmode="tel">
             </div>
             <div class="form-group">
-                <label>Password</label>
-                <input type="password" name="password" required>
+                <label for="transporter_password">Password</label>
+                <input type="password" id="transporter_password" name="password" required
+                       autocomplete="current-password">
             </div>
             <button type="submit" class="btn btn-primary btn-block" style="background:#1565c0;">Login</button>
         </form>

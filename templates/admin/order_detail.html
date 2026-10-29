@@ -148,7 +148,10 @@
 
     <div class="detail-card">
         <h3>Payment</h3>
-        <p><strong>Amount:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
+        <p><strong>Items:</strong> {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር
+            <small>({{ vat_label(order.vat_mode or 'inclusive', 'en') }})</small></p>
+        <p><strong>Delivery fee:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር</p>
+        <p><strong>Grand total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
         <p><strong>Required:</strong> {{ 'Yes' if order.payment_required else 'No' }}</p>
         <p><strong>Status:</strong> <span class="badge badge-{{ order.payment_status }}">{{ order.payment_status }}</span></p>
         {% if order.bank_name_snapshot or bank %}
@@ -244,7 +247,16 @@
         </tbody>
         <tfoot>
             <tr>
-                <td colspan="4"><strong>Total</strong></td>
+                <td colspan="4" style="text-align:right;"><strong>Items subtotal</strong>
+                    <small>({{ vat_label(order.vat_mode or 'inclusive', 'en') }})</small></td>
+                <td><strong>{{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር</strong></td>
+            </tr>
+            <tr>
+                <td colspan="4" style="text-align:right;"><strong>Delivery / transport fee</strong></td>
+                <td><strong>{{ '%.0f'|format(order.delivery_fee or 0) }} ብር</strong></td>
+            </tr>
+            <tr>
+                <td colspan="4" style="text-align:right;"><strong>Grand total</strong></td>
                 <td><strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong></td>
             </tr>
         </tfoot>

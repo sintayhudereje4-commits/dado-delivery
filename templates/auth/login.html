@@ -21,16 +21,19 @@
         <div class="auth-logo"><img src="{{ url_for('static', filename=settings.logo_path) }}" alt=""></div>
         {% endif %}
         <h1>{% if current_lang == 'am' %}ወደ አካውንትዎ ይግቡ{% else %}Login to your account{% endif %}</h1>
-        <form method="POST">
+        <form method="POST" id="customerLoginForm" autocomplete="on">
             {% if request.args.get("next") %}<input type="hidden" name="next" value="{{ request.args.get("next") }}">{% endif %}
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {# Phone + tel autocomplete = customer account (not admin username) #}
             <div class="form-group">
-                <label>{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
-                <input type="tel" name="phone" required autofocus placeholder="09xxxxxxxx">
+                <label for="customer_phone">{% if current_lang == 'am' %}ስልክ *{% else %}Phone *{% endif %}</label>
+                <input type="tel" id="customer_phone" name="phone" required autofocus
+                       placeholder="09xxxxxxxx" autocomplete="tel" inputmode="tel">
             </div>
             <div class="form-group">
-                <label>{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>
-                <input type="password" name="password" required>
+                <label for="customer_password">{% if current_lang == 'am' %}የይለፍ ቃል *{% else %}Password *{% endif %}</label>
+                <input type="password" id="customer_password" name="password" required
+                       autocomplete="current-password">
             </div>
             <button type="submit" class="btn btn-primary btn-block">{% if current_lang == 'am' %}ግባ{% else %}Login{% endif %}</button>
         </form>
