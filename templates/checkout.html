@@ -157,24 +157,25 @@ document.addEventListener('DOMContentLoaded', function () {
             const u = item.unit_label || item.unit || 'kg';
             html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}${escapeHtml(u)}) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
         });
-        const deliveryFee = {{ (site_delivery_fee or 0)|float }};
         html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የእቃዎች ድምር{% else %}Items{% endif %}</span><span>${total.toFixed(0)} ብር</span></li>`;
-        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የዴሊቨሪ / ማጓጓዣ ክፍያ{% else %}Delivery / transport fee{% endif %}</span><span>${deliveryFee.toFixed(0)} ብር</span></li>`;
-        const grand = total + deliveryFee;
-        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ{% else %}Total{% endif %}: ${grand.toFixed(0)} ብር</strong></div>`;
+        html += `<li style="opacity:.85;font-size:.88rem;color:#666;"><span>{% if current_lang == "am" %}የዴሊቨሪ ክፍያ{% else %}Delivery fee{% endif %}</span><span>{% if current_lang == "am" %}አስተዳዳሪ ያስላል{% else %}Set by admin{% endif %}</span></li>`;
+        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}የእቃዎች{% else %}Items total{% endif %}: ${total.toFixed(0)} ብር</strong></div>`;
         document.getElementById('orderSummary').innerHTML = html;
-        total = grand;
 
-        needPay = forcePay || (total >= PREPAY_MIN && total <= PREPAY_MAX);
-        paySec.style.display = needPay ? 'block' : 'none';
-        // disabled fields are neither validated nor submitted when no bank payment is needed
-        if (bankSel) bankSel.disabled = !needPay;
-        if (txInput) txInput.disabled = !needPay;
-        if (recInput) recInput.disabled = !needPay;
-        overNote.style.display = (!needPay && total > PREPAY_MAX) ? 'block' : 'none';
-        document.getElementById('payAmountLine').innerHTML = needPay
-            ? '{% if current_lang == "am" %}የሚከፍሉት መጠን{% else %}Amount to pay{% endif %}: <strong>' + total.toFixed(0) + ' ብር</strong>'
-            : '';
+        // Payment is requested later by admin after they set the delivery fee
+        needPay = false;
+        if (paySec) paySec.style.display = 'none';
+        if (bankSel) bankSel.disabled = true;
+        if (txInput) txInput.disabled = true;
+        if (recInput) recInput.disabled = true;
+        if (overNote) {
+          overNote.style.display = 'block';
+          overNote.style.background = '#fff8e1';
+          overNote.style.color = '#e65100';
+          overNote.textContent = '{% if current_lang == "am" %}ትዕዛዝዎ ወደ አስተዳዳሪ ይላካል። የዴሊቨሪ ክፍያ ከተወሰነ በኋላ የክፍያ መመሪያ ያያሉ።{% else %}Your order goes to the admin first. After they set the delivery fee you will get payment instructions.{% endif %}';
+        }
+        var payLine = document.getElementById('payAmountLine');
+        if (payLine) payLine.innerHTML = '';
     }
     renderSummary();
     // Prices may have changed since the items were added: refresh, then recompute everything

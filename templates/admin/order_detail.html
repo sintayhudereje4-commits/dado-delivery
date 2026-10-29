@@ -147,12 +147,64 @@
     </script>
 
     <div class="detail-card">
+        <h3>Delivery price / የዴሊቨሪ ዋጋ</h3>
+        <p style="font-size:.9rem;color:#555;margin-bottom:10px;">
+            Customer sent location, name and phone. Set the delivery fee here, then request payment / COD confirmation.
+        </p>
+        <form method="POST" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="set_delivery">
+            <div class="form-group" style="margin:0;">
+                <label>Items subtotal</label>
+                <input type="text" value="{{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር" disabled style="max-width:140px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label for="delivery_fee">Delivery fee (ETB) *</label>
+                <input type="number" step="0.01" min="0" id="delivery_fee" name="delivery_fee"
+                       value="{{ '%.2f'|format(order.delivery_fee or 0) }}" style="max-width:140px;" required>
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>Grand total</label>
+                <input type="text" id="adminGrandPreview"
+                       value="{{ '%.0f'|format(order.total_amount) }} ብር" disabled style="max-width:140px;">
+            </div>
+            <button type="submit" class="btn btn-outline">Save delivery fee</button>
+        </form>
+        <form method="POST" style="margin-top:12px;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="request_payment">
+            <input type="hidden" name="delivery_fee" id="requestFeeVal" value="{{ '%.2f'|format(order.delivery_fee or 0) }}">
+            <button type="submit" class="btn btn-primary"
+                    onclick="document.getElementById('requestFeeVal').value=document.getElementById('delivery_fee').value;">
+                Request payment / send notice to customer
+            </button>
+            <p class="hint" style="margin-top:8px;">
+                ≤100k → customer pays by bank. &gt;100k → customer accepts COD (pay on delivery).
+            </p>
+        </form>
+        <script>
+        (function(){
+          var fee = document.getElementById('delivery_fee');
+          var prev = document.getElementById('adminGrandPreview');
+          var items = {{ (order.items_subtotal if order.items_subtotal is not none else order.total_amount)|float }};
+          if (fee && prev) {
+            fee.addEventListener('input', function(){
+              var f = parseFloat(fee.value)||0;
+              prev.value = Math.round(items + f) + ' ብር';
+            });
+          }
+        })();
+        </script>
+    </div>
+
+    <div class="detail-card">
         <h3>Payment</h3>
         <p><strong>Items:</strong> {{ '%.0f'|format(order.items_subtotal if order.items_subtotal is not none else order.total_amount) }} ብር</p>
         <p><strong>Delivery fee:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር</p>
         <p><strong>Grand total:</strong> {{ '%.0f'|format(order.total_amount) }} ብር</p>
         <p><strong>Required:</strong> {{ 'Yes' if order.payment_required else 'No' }}</p>
         <p><strong>Status:</strong> <span class="badge badge-{{ order.payment_status }}">{{ order.payment_status }}</span></p>
+        {% if order.payment_note %}<p><em>{{ order.payment_note }}</em></p>{% endif %}
         {% if order.bank_name_snapshot or bank %}
         <p><strong>Bank:</strong>
             {% if order.bank_name_snapshot %}

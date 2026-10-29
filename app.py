@@ -1488,9 +1488,9 @@ def checkout():
     # Auto-estimate from product settings (admin can still override later)
     settings = get_settings()
     items_subtotal = float(total)
-    delivery_fee = max(0.0, float(getattr(settings, 'delivery_fee', 0) or 0))
-    grand_total = items_subtotal + delivery_fee
-    # Order.vat_mode kept for legacy display: mixed if products differ
+    # Delivery fee is set by admin AFTER the order is placed (Orders → set delivery price)
+    delivery_fee = 0.0
+    grand_total = items_subtotal  # updated when admin sets delivery fee
     vat_flags = set()
     for oi in order_items_data:
         pct = float(getattr(oi['product'], 'vat_percent', 0) or 0)
@@ -1510,38 +1510,13 @@ def checkout():
     else:
         estimated = ''
 
-    # Prepay threshold uses grand total (items + delivery)
-    payment_required = PREPAY_MIN <= grand_total <= PREPAY_MAX
-    payment_status = 'not_required'
+    # No bank payment at checkout — admin quotes delivery fee first, then requests payment
+    payment_required = False
+    payment_status = 'awaiting_quote'
     receipt_path = ''
     bank_id = None
     bank = None
-
-    if payment_required:
-        payment_status = 'pending'
-        bank_id = safe_int(data.get('bank_account_id'), 0)
-        bank = db.session.get(BankAccount, bank_id) if bank_id else None
-        if not bank or not bank.is_active:
-            return _json_error(_('Please select a bank account'), code='payment_required', total=grand_total)
-        upload = request.files.get('receipt')
-        if upload and upload.filename:
-            receipt_path = save_image(upload, 'receipt', private=True)
-            if not receipt_path:
-                return _json_error(_('The receipt must be a valid JPG, PNG, GIF or WEBP image'))
-        if not transaction_id and not receipt_path:
-            return _json_error(_('Send transaction ID or receipt photo'), code='payment_required', total=grand_total)
-        # Warn (soft) if same transaction ID was already used on another order
-        if transaction_id:
-            dup = Order.query.filter(
-                Order.transaction_id == transaction_id,
-                Order.status != 'cancelled',
-                Order.payment_status.in_(['pending', 'confirmed']),
-            ).first()
-            if dup:
-                return _json_error(
-                    _('This transaction ID was already used on order %(num)s', num=dup.order_number),
-                    code='duplicate_txn'
-                )
+    transaction_id = ''
 
     cust = get_current_customer()
     acc_raw = data.get('location_accuracy_m')
@@ -1568,16 +1543,16 @@ def checkout():
             total_amount=grand_total,
             vat_mode=vat_mode,
             estimated_delivery=estimated,
-            # COD / no prepay (e.g. over 100,000 ETB): accept immediately as confirmed
-            status=('confirmed' if not payment_required else 'pending'),
+            status='pending',
             payment_required=payment_required,
             payment_status=payment_status,
             transaction_id=transaction_id,
             receipt_path=receipt_path,
             bank_account_id=bank_id or None,
-            bank_name_snapshot=(bank.bank_name if bank else ''),
-            bank_account_name_snapshot=(bank.account_name if bank else ''),
-            bank_account_number_snapshot=(bank.account_number if bank else ''),
+            bank_name_snapshot='',
+            bank_account_name_snapshot='',
+            bank_account_number_snapshot='',
+            payment_note=_('Waiting for admin to set delivery fee'),
         )
         db.session.add(order)
         db.session.flush()
@@ -1652,7 +1627,8 @@ def order_success(order_number):
     order = Order.query.filter_by(order_number=order_number).first_or_404()
     if not _can_view_order(order):
         abort(403)
-    return render_template('order_success.html', order=order)
+    banks = BankAccount.query.filter_by(is_active=True).order_by(BankAccount.sort_order, BankAccount.id).all()
+    return render_template('order_success.html', order=order, banks=banks)
 
 
 @app.route('/api/order/<order_number>/status')
@@ -1668,6 +1644,8 @@ def api_order_status(order_number):
         'payment_required': bool(order.payment_required),
         'payment_note': order.payment_note or '',
         'estimated_delivery': order.estimated_delivery or '',
+        'items_subtotal': float(order.items_subtotal or 0),
+        'delivery_fee': float(order.delivery_fee or 0),
         'total_amount': float(order.total_amount or 0),
     })
 
@@ -2247,39 +2225,58 @@ def account():
 # Transporter portal
 # ---------------------------------------------------------------------------
 
+@app.route('/order/<order_number>/accept-cod', methods=['POST'])
+def accept_cod(order_number):
+    """Customer accepts delivery fee for COD orders (over PREPAY_MAX)."""
+    order = Order.query.filter_by(order_number=order_number).first_or_404()
+    if not _can_view_order(order):
+        abort(403)
+    if order.payment_status != 'awaiting_customer':
+        flash(_('Nothing to confirm on this order'), 'error')
+        return redirect(url_for('order_success', order_number=order_number))
+    order.payment_status = 'not_required'
+    order.payment_note = _('Customer accepted delivery fee — pay on delivery')
+    if order.status == 'pending':
+        change_order_status(order, 'confirmed', actor='customer', note='COD accepted')
+    db.session.commit()
+    flash(_('Thank you. Pay when your order is delivered.'), 'success')
+    return redirect(url_for('order_success', order_number=order_number))
+
+
 @app.route('/order/<order_number>/resubmit-payment', methods=['POST'])
 def resubmit_payment(order_number):
-    """Customer re-uploads receipt / transaction ID after admin rejected payment."""
+    """Customer uploads / re-uploads receipt after admin requested payment."""
     order = Order.query.filter_by(order_number=order_number).first_or_404()
-    # Auth: session pending list, or owning customer
-    allowed = session.get('pending_orders') or []
-    cust = get_current_customer()
-    ok = order.order_number in allowed
-    if cust and order.customer_id == cust.id:
-        ok = True
-    if not ok:
+    if not _can_view_order(order):
         abort(403)
     if not order.payment_required:
         flash(_('This order does not require bank payment'), 'error')
-        return redirect(url_for('cart'))
+        return redirect(url_for('order_success', order_number=order_number))
     if order.payment_status not in ('rejected', 'pending'):
-        flash(_('Payment can only be re-submitted when pending or rejected'), 'error')
-        return redirect(url_for('cart'))
+        flash(_('Payment can only be submitted when payment was requested'), 'error')
+        return redirect(url_for('order_success', order_number=order_number))
     if order.status in ('cancelled', 'delivered'):
         flash(_('This order is already closed'), 'error')
-        return redirect(url_for('cart'))
+        return redirect(url_for('order_success', order_number=order_number))
 
     transaction_id = ' '.join((request.form.get('transaction_id') or '').split()).upper()[:120]
+    bank_id = safe_int(request.form.get('bank_account_id'), 0)
+    bank = db.session.get(BankAccount, bank_id) if bank_id else None
+    if bank and bank.is_active:
+        order.bank_account_id = bank.id
+        order.bank_name_snapshot = bank.bank_name
+        order.bank_account_name_snapshot = bank.account_name
+        order.bank_account_number_snapshot = bank.account_number
     upload = request.files.get('receipt')
     new_path = ''
     if upload and upload.filename:
         new_path = save_image(upload, 'receipt', private=True)
         if not new_path:
             flash(_('The receipt must be a valid JPG, PNG, GIF or WEBP image'), 'error')
-            return redirect(url_for('cart'))
+            return redirect(url_for('order_success', order_number=order_number))
     if not transaction_id and not new_path and not order.receipt_path:
         flash(_('Send transaction ID or receipt photo'), 'error')
-        return redirect(url_for('cart'))
+        return redirect(url_for('order_success', order_number=order_number))
     if transaction_id:
         # duplicate check among other active orders
         dup = (Order.query.filter(
@@ -2290,7 +2287,7 @@ def resubmit_payment(order_number):
         ).first())
         if dup:
             flash(_('This transaction ID was already used on order %(n)s', n=dup.order_number), 'error')
-            return redirect(url_for('cart'))
+            return redirect(url_for('order_success', order_number=order_number))
         order.transaction_id = transaction_id
     if new_path:
         order.receipt_path = new_path
@@ -2302,7 +2299,7 @@ def resubmit_payment(order_number):
         pass
     db.session.commit()
     flash(_('Payment proof sent. We will review it shortly.'), 'success')
-    return redirect(url_for('cart'))
+    return redirect(url_for('order_success', order_number=order_number))
 
 
 @app.route('/transporter/login', methods=['GET', 'POST'])
@@ -2907,14 +2904,78 @@ def admin_order_detail(oid):
     if request.method == 'POST':
         action = request.form.get('action', 'status')
         back = redirect(url_for('admin_order_detail', oid=oid))
+        if action == 'set_delivery':
+            if order.status in ('cancelled', 'delivered'):
+                flash(_('Cannot change delivery fee on a closed order'), 'error')
+                return back
+            fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
+            items = float(order.items_subtotal or 0)
+            if items <= 0:
+                items = float(order.total_amount or 0)
+                order.items_subtotal = items
+            order.delivery_fee = fee
+            order.total_amount = items + fee
+            if order.payment_status in ('awaiting_quote', 'awaiting_customer', ''):
+                order.payment_note = _('Delivery fee set to %(n)s ETB — request payment when ready', n=f'{fee:.0f}')
+            log_order_change(order, 'delivery_fee', None, fee, actor='admin', note='set delivery fee')
+            db.session.commit()
+            flash(_('Delivery fee saved: %(n)s ETB. Grand total %(t)s ETB.',
+                    n=f'{fee:.0f}', t=f'{order.total_amount:.0f}'), 'success')
+            return back
+
+        if action == 'request_payment':
+            if order.status in ('cancelled', 'delivered'):
+                flash(_('Order is closed'), 'error')
+                return back
+            fee = form_float('delivery_fee', float(order.delivery_fee or 0), 0.0, 1e7)
+            items = float(order.items_subtotal or 0)
+            if items <= 0:
+                items = max(0.0, float(order.total_amount or 0) - float(order.delivery_fee or 0))
+                order.items_subtotal = items
+            order.delivery_fee = fee
+            order.total_amount = items + fee
+            grand = order.total_amount
+            if grand < PREPAY_MIN:
+                # Small order — no bank deposit; mark ready
+                order.payment_required = False
+                order.payment_status = 'not_required'
+                order.payment_note = _('No bank payment required (under %(n)s ETB). Ready to process.', n=PREPAY_MIN)
+                if order.status == 'pending':
+                    change_order_status(order, 'confirmed', actor='admin', note='small order auto-confirm')
+            elif grand <= PREPAY_MAX:
+                order.payment_required = True
+                order.payment_status = 'pending'
+                order.payment_note = _(
+                    'Please pay %(t)s ETB by bank (items %(i)s + delivery %(d)s). Upload receipt or transaction ID.',
+                    t=f'{grand:.0f}', i=f'{items:.0f}', d=f'{fee:.0f}'
+                )
+            else:
+                # Over 100,000 — COD: ask customer to accept delivery fee; pay on delivery
+                order.payment_required = False
+                order.payment_status = 'awaiting_customer'
+                order.payment_note = _(
+                    'Delivery fee is %(d)s ETB. Grand total %(t)s ETB. No bank transfer needed — pay when items are delivered. Please confirm on your order page.',
+                    d=f'{fee:.0f}', t=f'{grand:.0f}'
+                )
+            log_order_change(order, 'payment_status', None, order.payment_status, actor='admin', note='request payment / customer notice')
+            db.session.commit()
+            flash(_('Customer payment request sent'), 'success')
+            return back
+
         if action == 'assign':
             tid = (request.form.get('transporter_id') or '').strip()
             if tid:
                 if order.status in ('cancelled', 'delivered'):
                     flash(_('This order is already closed'), 'error')
                     return back
+                if order.payment_status == 'awaiting_quote':
+                    flash(_('Set delivery fee and request payment first'), 'error')
+                    return back
                 if order.payment_required and order.payment_status not in ('confirmed', 'not_required'):
                     flash(_('Confirm payment before assigning transporter'), 'error')
+                    return back
+                if order.payment_status == 'awaiting_customer':
+                    flash(_('Wait for customer to accept delivery fee (COD)'), 'error')
                     return back
                 tr = db.session.get(Transporter, safe_int(tid, 0))
                 if not tr or not tr.is_active:
@@ -2940,7 +3001,7 @@ def admin_order_detail(oid):
             pay = request.form.get('payment_status')
             note = request.form.get('payment_note', '').strip()[:1000]
             if pay in ['pending', 'confirmed', 'rejected']:
-                if not order.payment_required:
+                if not order.payment_required and pay != 'confirmed':
                     flash(_('This order does not require bank payment'), 'error')
                     return back
                 if order.status in ('cancelled', 'delivered'):

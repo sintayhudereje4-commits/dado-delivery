@@ -59,31 +59,68 @@
             </p>
         </div>
 
-        <div id="paymentBox" class="order-details-box" style="margin-top:12px;{% if not order.payment_required %}display:none;{% endif %}">
+        <div id="awaitingQuoteBox" class="order-details-box" style="margin-top:12px;background:#fff8e1;color:#e65100;{% if order.payment_status != 'awaiting_quote' %}display:none;{% endif %}">
+            {% if current_lang == 'am' %}
+            ትዕዛዝዎ ተቀብሏል። አስተዳዳሪ የዴሊቨሪ ክፍያውን ካስላ በኋላ የክፍያ መመሪያ እዚህ ይታያል። ይህን ገጽ ክፈተው ይጠብቁ።
+            {% else %}
+            Order received. After the admin sets the delivery fee, payment instructions will appear here. Keep this page open.
+            {% endif %}
+        </div>
+
+        <div id="paymentBox" class="order-details-box" style="margin-top:12px;{% if not (order.payment_required and order.payment_status in ['pending','rejected']) %}display:none;{% endif %}">
             <p><strong>{% if current_lang == 'am' %}የክፍያ ሁኔታ{% else %}Payment status{% endif %}:</strong>
                 <span id="payStatus">{{ order.payment_status }}</span>
             </p>
-            {% if order.transaction_id %}
-            <p>Txn: {{ order.transaction_id }}</p>
-            {% endif %}
             <p id="payNote">{% if order.payment_note %}{{ order.payment_note }}{% endif %}</p>
-            <p id="payPendingMsg" style="color:#e65100;{% if order.payment_status != 'pending' %}display:none;{% endif %}">
-                {% if current_lang == 'am' %}ክፍያዎ በማረጋገጥ ላይ ነው — ከተረጋገጠ በኋላ ትዕዛዝ ይቀጥላል።{% else %}Payment pending verification. The order will continue once confirmed.{% endif %}
+            <p><strong>{% if current_lang == 'am' %}የእቃዎች{% else %}Items{% endif %}:</strong> {{ '%.0f'|format(order.items_subtotal or 0) }} ብር
+               + <strong>{% if current_lang == 'am' %}ዴሊቨሪ{% else %}Delivery{% endif %}:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር
+               = <strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong></p>
+            <p id="payPendingMsg" style="color:#e65100;">
+                {% if current_lang == 'am' %}እባክዎ ባንክ ያስገቡና ትራንዛክሽን ID ወይም ደረሰኝ ይላኩ።{% else %}Please deposit to a bank below and send transaction ID or receipt.{% endif %}
             </p>
-            <p id="payOkMsg" style="color:#2e7d32;{% if order.payment_status != 'confirmed' %}display:none;{% endif %}">
+            <form method="POST" action="{{ url_for('resubmit_payment', order_number=order.order_number) }}" enctype="multipart/form-data" style="text-align:left;max-width:420px;margin:12px auto;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label>{% if current_lang == 'am' %}ባንክ{% else %}Bank{% endif %}</label>
+                    <select name="bank_account_id" required style="width:100%;padding:8px;">
+                        <option value="">--</option>
+                        {% for b in banks %}
+                        <option value="{{ b.id }}">{{ b.bank_name }} — {{ b.account_name }} / {{ b.account_number }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Transaction ID</label>
+                    <input type="text" name="transaction_id" style="width:100%;padding:8px;">
+                </div>
+                <div class="form-group">
+                    <label>{% if current_lang == 'am' %}የደረሰኝ ፎቶ{% else %}Receipt photo{% endif %}</label>
+                    <input type="file" name="receipt" accept="image/*">
+                </div>
+                <button type="submit" class="btn btn-primary">{% if current_lang == 'am' %}ክፍያ አስረክብ{% else %}Submit payment{% endif %}</button>
+            </form>
+            <p id="payOkMsg" style="color:#2e7d32;display:none;">
                 {% if current_lang == 'am' %}ክፍያ ተረጋግጧል ✓{% else %}Payment confirmed ✓{% endif %}
             </p>
         </div>
 
-        {% if not order.payment_required and order.total_amount > prepay_max %}
-        <div class="order-details-box" style="margin-top:12px;background:#e3f2fd;color:#0d47a1;">
+        <div id="codBox" class="order-details-box" style="margin-top:12px;background:#e3f2fd;color:#0d47a1;{% if order.payment_status != 'awaiting_customer' %}display:none;{% endif %}">
             {% if current_lang == 'am' %}
-            ከ 100,000 ብር በላይ — የሞባይል ወይም የባንክ ትራንስፈር አያስፈልግም። እቃዎ በእጅዎ ሲደርስ ክፍያውን መፈጸም ይችላሉ።
+            <p>የዴሊቨሪ ክፍያ <strong>{{ '%.0f'|format(order.delivery_fee or 0) }} ብር</strong> —
+            ጠቅላላ <strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong>።
+            የባንክ ትራንስፈር አያስፈልግም — እቃዎ ሲደርስ ይከፍላሉ።</p>
             {% else %}
-            Over 100,000 ETB — no mobile or bank transfer needed. You can pay when the items are delivered to you.
+            <p>Delivery fee <strong>{{ '%.0f'|format(order.delivery_fee or 0) }} ETB</strong> —
+            total <strong>{{ '%.0f'|format(order.total_amount) }} ETB</strong>.
+            No bank transfer — pay when delivered.</p>
             {% endif %}
+            <form method="POST" action="{{ url_for('accept_cod', order_number=order.order_number) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary">
+                    {% if current_lang == 'am' %}እቀበላለሁ / አረጋግጣለሁ{% else %}I accept / Confirm{% endif %}
+                </button>
+            </form>
         </div>
-        {% endif %}
 
         <a href="{{ url_for('index') }}" class="btn btn-primary" style="margin-top:16px;">
             {% if current_lang == 'am' %}ወደ መነሻ{% else %}Back to Home{% endif %}
@@ -114,6 +151,7 @@
     badge.style.textTransform = 'capitalize';
   }
   paint({{ order.status|tojson }});
+  var lastPay = {{ order.payment_status|tojson }};
 
   function poll() {
     if (document.visibilityState !== 'visible') return;
@@ -130,21 +168,28 @@
           est.textContent = d.estimated_delivery;
           di.hidden = false;
         }
+        if (d.payment_status && d.payment_status !== lastPay) {
+          lastPay = d.payment_status;
+          location.reload();
+          return;
+        }
+        var aq = document.getElementById('awaitingQuoteBox');
+        if (aq) aq.style.display = d.payment_status === 'awaiting_quote' ? '' : 'none';
         var payBox = document.getElementById('paymentBox');
         if (payBox) {
-          payBox.style.display = d.payment_required ? '' : 'none';
+          var showPay = d.payment_required && (d.payment_status === 'pending' || d.payment_status === 'rejected');
+          payBox.style.display = showPay ? '' : 'none';
           var ps = document.getElementById('payStatus');
           if (ps) ps.textContent = d.payment_status || '';
           var pn = document.getElementById('payNote');
           if (pn) pn.textContent = d.payment_note || '';
-          var pp = document.getElementById('payPendingMsg');
           var po = document.getElementById('payOkMsg');
-          if (pp) pp.style.display = d.payment_status === 'pending' ? '' : 'none';
           if (po) po.style.display = d.payment_status === 'confirmed' ? '' : 'none';
         }
+        var cod = document.getElementById('codBox');
+        if (cod) cod.style.display = d.payment_status === 'awaiting_customer' ? '' : 'none';
       }).catch(function(){});
   }
-  // Silent 1s live refresh — no visible "Live" label
   setInterval(poll, 1000);
   setTimeout(poll, 400);
 })();
