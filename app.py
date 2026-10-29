@@ -598,15 +598,24 @@ def security_headers(resp):
     # HSTS only on HTTPS responses
     if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
         resp.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
-    # Baseline CSP (allows Leaflet CDN + inline styles used by templates)
+    # Baseline CSP (allows Leaflet CDN + map tile providers + inline styles)
     resp.headers.setdefault(
         'Content-Security-Policy',
         "default-src 'self'; "
-        "img-src 'self' data: blob: https://*.arcgisonline.com https://*.tile.openstreetmap.org https://unpkg.com; "
+        "img-src 'self' data: blob: "
+        "https://*.arcgisonline.com https://server.arcgisonline.com "
+        "https://*.tile.openstreetmap.org https://*.openstreetmap.org "
+        "https://api.maptiler.com https://*.maptiler.com "
+        "https://*.mapbox.com https://api.mapbox.com "
+        "https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com data:; "
         "script-src 'self' 'unsafe-inline' https://unpkg.com; "
-        "connect-src 'self'; "
+        "connect-src 'self' "
+        "https://api.maptiler.com https://*.maptiler.com "
+        "https://*.arcgisonline.com https://server.arcgisonline.com "
+        "https://*.tile.openstreetmap.org "
+        "https://*.mapbox.com https://api.mapbox.com; "
         "frame-ancestors 'self'"
     )
     return resp

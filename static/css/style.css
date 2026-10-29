@@ -303,11 +303,23 @@ body {
     text-align: center;
     font-size: 1rem;
     font-family: inherit;
+    /* Hide browser native ↑↓ spinners — we already have − / + buttons */
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.qty-control input::-webkit-outer-spin-button,
+.qty-control input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 .qty-control.small button {
     width: 28px;
     height: 28px;
     font-size: 1rem;
+}
+.qty-control.small input {
+    width: 40px;
+    height: 28px;
 }
 .qty-control.small span { padding: 0 8px; }
 

@@ -253,7 +253,19 @@ document.addEventListener('DOMContentLoaded', function () {
             setCoords(e.latlng.lat, e.latlng.lng, 'manual');
             gpsStatus.textContent = '{% if current_lang == "am" %}በእጅ ተመርጧል{% else %}Selected on map{% endif %}';
         });
-        setTimeout(function () { map.invalidateSize(); }, 200);
+        // Map often starts in a zero-width layout until paint finishes
+        [100, 300, 800].forEach(function (ms) {
+            setTimeout(function () { try { map.invalidateSize(); } catch (e) {} }, ms);
+        });
+        // If tiles fail (bad key / network), show a gentle note
+        var tileErrors = 0;
+        map.on('tileerror', function () {
+            tileErrors++;
+            if (tileErrors === 3 && gpsStatus) {
+                gpsStatus.style.color = '#e65100';
+                gpsStatus.textContent = '{% if current_lang == "am" %}ካርታ tiles አልተጫኑም — GPS ወይም coordinates ይጠቀሙ። (MAP_TILES_URL / API key ይፈትሹ){% else %}Map tiles failed to load — use GPS or paste coordinates. (Check MAP_TILES_URL / API key){% endif %}';
+            }
+        });
     }
 
     function requestGps() {
