@@ -731,8 +731,8 @@ class Product(db.Model):
     image_path = db.Column(db.String(255), default='')
     # Measurement unit for variant sizes: kg | L | pcs | pack | bag
     unit = db.Column(db.String(10), default='kg', nullable=False)
-    # VAT rate % included in listed prices. 0 = VAT Exempt. e.g. 15 = VAT Inclusive 15%.
-    vat_percent = db.Column(db.Float, default=0.0)
+    # VAT rate % included in listed prices. e.g. 15 = VAT Inclusive 15%.
+    vat_percent = db.Column(db.Float, default=15.0)
     is_active = db.Column(db.Boolean, default=True)
     sort_order = db.Column(db.Integer, default=0)
     delivery_min_hours = db.Column(db.Integer, default=2)
@@ -2693,10 +2693,8 @@ def _read_product_unit():
 
 
 def _read_product_vat_percent():
-    """VAT % on listed price. 0 = exempt. Max 100."""
-    if request.form.get('vat_exempt'):
-        return 0.0
-    return form_float('vat_percent', 0.0, 0.0, 100.0)
+    """VAT % on listed price (inclusive). Max 100."""
+    return form_float('vat_percent', 15.0, 0.0, 100.0)
 
 
 @app.route('/admin/products/add', methods=['GET', 'POST'])
@@ -2863,11 +2861,92 @@ def admin_product_delete(pid):
     return redirect(url_for('admin_products'))
 
 
-@app.route('/admin/orders')
+@app.route('/admin/orders', methods=['GET', 'POST'])
 @admin_required
 def admin_orders():
     status = request.args.get('status', '').strip()
     q = (request.args.get('q') or '').strip()[:80]
+
+    if request.method == 'POST' and request.form.get('action') == 'save_all':
+        updated = 0
+        # form keys like fee_123, status_123, transporter_123, eta_123, request_pay_123
+        ids = set()
+        for key in request.form.keys():
+            if key.startswith('fee_'):
+                try:
+                    ids.add(int(key.split('_', 1)[1]))
+                except ValueError:
+                    pass
+        for oid in ids:
+            order = db.session.get(Order, oid)
+            if not order or order.status in ('cancelled', 'delivered'):
+                continue
+            # delivery fee
+            fee = form_float(f'fee_{oid}', float(order.delivery_fee or 0), 0.0, 1e7)
+            items = float(order.items_subtotal or 0)
+            if items <= 0:
+                items = max(0.0, float(order.total_amount or 0) - float(order.delivery_fee or 0))
+                order.items_subtotal = items
+            order.delivery_fee = fee
+            order.total_amount = items + fee
+            # delivery time for customer
+            eta = (request.form.get(f'eta_{oid}') or '').strip()[:80]
+            if eta:
+                order.estimated_delivery = eta
+            # status
+            new_status = (request.form.get(f'status_{oid}') or '').strip()
+            if new_status and new_status != order.status:
+                err = change_order_status(order, new_status, actor='admin', note='bulk save')
+                if err:
+                    flash(f'{order.order_number}: {err}', 'error')
+            # transporter
+            tid_raw = (request.form.get(f'transporter_{oid}') or '').strip()
+            if tid_raw:
+                tr = db.session.get(Transporter, safe_int(tid_raw, 0))
+                if tr and tr.is_active:
+                    if order.payment_status == 'awaiting_quote':
+                        flash(_('%(n)s: set delivery & request payment before assign',
+                                n=order.order_number), 'error')
+                    elif order.payment_required and order.payment_status not in ('confirmed', 'not_required'):
+                        flash(_('%(n)s: confirm payment before assign', n=order.order_number), 'error')
+                    else:
+                        order.transporter_id = tr.id
+                        order.assigned_at = utcnow()
+                        if order.status == 'pending':
+                            change_order_status(order, 'confirmed', actor='admin', note='assigned transporter')
+            else:
+                # empty = unassign only if field was present
+                if f'transporter_{oid}' in request.form:
+                    order.transporter_id = None
+                    order.assigned_at = None
+            # optional: request payment for this order
+            if request.form.get(f'request_pay_{oid}'):
+                grand = float(order.total_amount or 0)
+                if grand < PREPAY_MIN:
+                    order.payment_required = False
+                    order.payment_status = 'not_required'
+                    order.payment_note = _('No bank payment required')
+                    if order.status == 'pending':
+                        change_order_status(order, 'confirmed', actor='admin', note='small order')
+                elif grand <= PREPAY_MAX:
+                    order.payment_required = True
+                    order.payment_status = 'pending'
+                    order.payment_note = _(
+                        'Please pay %(t)s ETB (items + delivery). Upload receipt or transaction ID.',
+                        t=f'{grand:.0f}'
+                    )
+                else:
+                    order.payment_required = False
+                    order.payment_status = 'awaiting_customer'
+                    order.payment_note = _(
+                        'Delivery fee set. Total %(t)s ETB — pay on delivery. Please confirm.',
+                        t=f'{grand:.0f}'
+                    )
+            updated += 1
+        db.session.commit()
+        flash(_('Saved %(n)s order(s)', n=updated), 'success')
+        return redirect(url_for('admin_orders', status=status or None, q=q or None))
+
     query = Order.query.order_by(Order.created_at.desc())
     if status:
         query = query.filter_by(status=status)
@@ -2880,7 +2959,15 @@ def admin_orders():
             Order.transaction_id.ilike(like),
         ))
     orders = query.limit(300).all()
-    return render_template('admin/orders.html', orders=orders, current_status=status, search_q=q)
+    transporters = Transporter.query.filter_by(is_active=True).order_by(Transporter.name).all()
+    return render_template(
+        'admin/orders.html',
+        orders=orders,
+        transporters=transporters,
+        current_status=status,
+        search_q=q,
+        status_choices=['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
+    )
 
 
 def _parse_hours(raw):

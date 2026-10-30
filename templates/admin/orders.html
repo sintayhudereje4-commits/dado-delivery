@@ -13,48 +13,110 @@
     </form>
     <div class="filter-tabs">
         <a href="{{ url_for('admin_orders', q=search_q) if search_q else url_for('admin_orders') }}" class="{% if not current_status %}active{% endif %}">All</a>
-        <a href="{{ url_for('admin_orders', status='pending', q=search_q) }}" class="{% if current_status == 'pending' %}active{% endif %}">Pending</a>
-        <a href="{{ url_for('admin_orders', status='confirmed', q=search_q) }}" class="{% if current_status == 'confirmed' %}active{% endif %}">Confirmed</a>
-        <a href="{{ url_for('admin_orders', status='preparing', q=search_q) }}" class="{% if current_status == 'preparing' %}active{% endif %}">Preparing</a>
-        <a href="{{ url_for('admin_orders', status='out_for_delivery', q=search_q) }}" class="{% if current_status == 'out_for_delivery' %}active{% endif %}">Out for Delivery</a>
-        <a href="{{ url_for('admin_orders', status='delivered', q=search_q) }}" class="{% if current_status == 'delivered' %}active{% endif %}">Delivered</a>
-        <a href="{{ url_for('admin_orders', status='cancelled', q=search_q) }}" class="{% if current_status == 'cancelled' %}active{% endif %}">Cancelled</a>
+        {% for s in status_choices %}
+        <a href="{{ url_for('admin_orders', status=s, q=search_q) }}" class="{% if current_status == s %}active{% endif %}">{{ s.replace('_',' ')|title }}</a>
+        {% endfor %}
     </div>
 </div>
 
-<div class="table-wrap">
-    <table class="admin-table">
-        <thead>
-            <tr>
-                <th>Order #</th>
-                <th>Phone</th>
-                <th>Location</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for o in orders %}
-            <tr>
-                <td>{{ o.order_number }}</td>
-                <td>{{ o.phone }}</td>
-                <td>
-                    {% if o.latitude and o.longitude %}
-                        <a href="https://www.google.com/maps?q={{ o.latitude }},{{ o.longitude }}" target="_blank">GPS 📍</a>
-                    {% endif %}
-                    {% if o.address_text %}<br><small>{{ o.address_text[:40] }}{% if o.address_text|length > 40 %}…{% endif %}</small>{% endif %}
-                </td>
-                <td>{{ '%.0f'|format(o.total_amount) }} ብር</td>
-                <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
-                <td>{{ o.created_at|addis }}</td>
-                <td><a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm">View</a></td>
-            </tr>
+<form method="POST" id="ordersBulkForm">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="action" value="save_all">
+
+{% for o in orders %}
+<div class="detail-card" style="margin-bottom:16px;border:1px solid #e0e0e0;border-radius:12px;padding:16px;background:#fff;">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-bottom:12px;align-items:center;">
+        <div>
+            <strong style="font-size:1.1rem;">{{ o.order_number }}</strong>
+            <span class="badge badge-{{ o.status }}" style="margin-left:8px;">{{ o.status }}</span>
+            <span class="badge" style="margin-left:4px;background:#eceff1;color:#455a64;">{{ o.payment_status }}</span>
+            <small style="color:#888;margin-left:8px;">{{ o.created_at|addis }}</small>
+        </div>
+        <a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm btn-outline">Full detail</a>
+    </div>
+
+    {# Order items + money #}
+    <div style="margin-bottom:12px;padding:10px;background:#fafafa;border-radius:8px;">
+        <strong>Order items / ዋጋ</strong>
+        <ul style="margin:6px 0 0 18px;font-size:.92rem;">
+            {% for it in o.items %}
+            <li>{{ it.product_name }} — {{ it.weight_kg }} {{ unit_label(it.unit or 'kg', 'en') }} × {{ it.quantity }}
+                = {{ '%.0f'|format(it.subtotal) }} ብር
+                <small style="color:#666;">({{ product_vat_label(it.vat_percent, 'en') }})</small>
+            </li>
             {% else %}
-            <tr><td colspan="7">No orders</td></tr>
+            <li>No items</li>
             {% endfor %}
-        </tbody>
-    </table>
+        </ul>
+        <p style="margin:8px 0 0;font-size:.95rem;">
+            Items: <strong>{{ '%.0f'|format(o.items_subtotal if o.items_subtotal is not none else o.total_amount) }} ብር</strong>
+            · Delivery: <strong>{{ '%.0f'|format(o.delivery_fee or 0) }} ብር</strong>
+            · Total: <strong>{{ '%.0f'|format(o.total_amount) }} ብር</strong>
+        </p>
+    </div>
+
+    {# Customer & location #}
+    <div style="margin-bottom:12px;font-size:.95rem;">
+        <strong>Customer & location</strong><br>
+        {{ o.customer_name or '—' }} · {{ o.phone }}
+        {% if o.latitude and o.longitude %}
+        · <a href="https://www.google.com/maps?q={{ o.latitude }},{{ o.longitude }}" target="_blank" rel="noopener">GPS 📍</a>
+        {% endif %}
+        {% if o.address_text %}<br><small style="color:#555;">{{ o.address_text }}</small>{% endif %}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end;">
+        <div class="form-group" style="margin:0;">
+            <label>Delivery time (for customer)</label>
+            <input type="text" name="eta_{{ o.id }}" value="{{ o.estimated_delivery or '' }}"
+                   placeholder="e.g. 2-4" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;">
+            <small style="color:#888;">hours shown to customer</small>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label>Delivery price (ETB)</label>
+            <input type="number" step="0.01" min="0" name="fee_{{ o.id }}" value="{{ '%.2f'|format(o.delivery_fee or 0) }}"
+                   style="width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;"
+                   {% if o.status in ('cancelled','delivered') %}disabled{% endif %}>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label>Status</label>
+            <select name="status_{{ o.id }}" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;"
+                    {% if o.status in ('cancelled','delivered') %}disabled{% endif %}>
+                {% for s in status_choices %}
+                <option value="{{ s }}" {% if o.status == s %}selected{% endif %}>{{ s.replace('_',' ') }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label>Assign transporter</label>
+            <select name="transporter_{{ o.id }}" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;"
+                    {% if o.status in ('cancelled','delivered') %}disabled{% endif %}>
+                <option value="">— none —</option>
+                {% for tr in transporters %}
+                <option value="{{ tr.id }}" {% if o.transporter_id == tr.id %}selected{% endif %}>{{ tr.name }} ({{ tr.phone }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="request_pay_{{ o.id }}" value="1"
+                       {% if o.status in ('cancelled','delivered') %}disabled{% endif %}>
+                <span>Request payment / notify customer</span>
+            </label>
+            <small style="color:#888;">after setting delivery price</small>
+        </div>
+    </div>
 </div>
+{% else %}
+<p style="padding:24px;color:#666;">No orders</p>
+{% endfor %}
+
+{% if orders %}
+<div style="position:sticky;bottom:12px;z-index:20;text-align:center;padding:12px;">
+    <button type="submit" class="btn btn-primary btn-lg" style="min-width:220px;box-shadow:0 4px 16px rgba(0,0,0,.2);">
+        Save all
+    </button>
+</div>
+{% endif %}
+</form>
 {% endblock %}

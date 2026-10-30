@@ -106,11 +106,6 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="notes">{% if current_lang == 'am' %}ማስታወሻ{% else %}Notes{% endif %}</label>
-                        <textarea id="notes" name="notes" rows="2"></textarea>
-                    </div>
-
                     <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitOrderBtn">
                         {% if current_lang == 'am' %}ትዕዛዝ አስገባ{% else %}Submit Order{% endif %}
                     </button>
@@ -150,16 +145,26 @@ document.addEventListener('DOMContentLoaded', function () {
     // and re-derived whenever the prices are refreshed from the server.
     function renderSummary() {
         total = 0;
+        let vatTotal = 0;
         let html = '<ul class="summary-list">';
         cart.forEach(item => {
-            const sub = item.price * item.quantity;
+            const qty = item.quantity || 1;
+            const unitPrice = item.price || 0;
+            const sub = unitPrice * qty;
             total += sub;
             const u = item.unit_label || item.unit || 'kg';
-            html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(item.weight_kg)}${escapeHtml(u)}) × ${escapeHtml(item.quantity)}</span><span>${sub.toFixed(0)} ብር</span></li>`;
+            const vatPct = parseFloat(item.vat_percent);
+            const rate = isNaN(vatPct) ? 0 : vatPct;
+            // VAT inclusive: VAT portion of line = sub * rate/(100+rate)
+            const vatAmt = rate > 0 ? sub * rate / (100 + rate) : 0;
+            vatTotal += vatAmt;
+            html += `<li><span>${escapeHtml(item.name)} (${escapeHtml(String(item.weight_kg))}${escapeHtml(u)}) × ${escapeHtml(String(qty))}</span><span>${sub.toFixed(0)} ብር</span></li>`;
+            if (rate > 0) {
+              html += `<li style="opacity:.85;font-size:.88rem;color:#555;padding-left:8px;"><span>VAT ${rate}% × ${escapeHtml(String(qty))}</span><span>${vatAmt.toFixed(0)} ብር</span></li>`;
+            }
         });
-        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የእቃዎች ድምር{% else %}Items{% endif %}</span><span>${total.toFixed(0)} ብር</span></li>`;
-        html += `<li style="opacity:.85;font-size:.88rem;color:#666;"><span>{% if current_lang == "am" %}የዴሊቨሪ ክፍያ{% else %}Delivery fee{% endif %}</span><span>{% if current_lang == "am" %}አስተዳዳሪ ያስላል{% else %}Set by admin{% endif %}</span></li>`;
-        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}የእቃዎች{% else %}Items total{% endif %}: ${total.toFixed(0)} ብር</strong></div>`;
+        html += `<li style="opacity:.9;font-size:.92rem;"><span>{% if current_lang == "am" %}የዴሊቨሪ ክፍያ{% else %}Delivery fee{% endif %}</span><span>{% if current_lang == "am" %}በቦታው ሁኔታ ይሰላል{% else %}Calculated by location{% endif %}</span></li>`;
+        html += `</ul><div class="summary-total"><strong>{% if current_lang == "am" %}ጠቅላላ (ያለ ዴሊቨሪ){% else %}Total (without delivery){% endif %}: ${total.toFixed(0)} ብር</strong></div>`;
         document.getElementById('orderSummary').innerHTML = html;
 
         // Payment is requested later by admin after they set the delivery fee
@@ -384,7 +389,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fd.append('location_confirmed', locationConfirmed ? '1' : '0');
         fd.append('location_method', methodInput ? methodInput.value : 'manual');
         if (locationAccuracy != null) fd.append('location_accuracy_m', String(Math.round(locationAccuracy)));
-        fd.append('notes', document.getElementById('notes').value.trim());
+        fd.append('notes', '');
         if (needPay) {
             const bank = document.getElementById('bank_account_id');
             if (bank && bank.value) fd.append('bank_account_id', bank.value);

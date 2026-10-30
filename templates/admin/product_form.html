@@ -98,37 +98,16 @@
     </div>
 
     <div class="form-group" style="background:#e8f5e9;padding:16px;border-radius:10px;border:1px solid #a5d6a7;margin-bottom:16px;">
-        <label style="font-weight:700;">VAT / ቫት *</label>
+        <label style="font-weight:700;" for="vat_percent">VAT / ቫት % *</label>
         {% set vp = (product.vat_percent if product and product.vat_percent is not none else default_vat_percent) %}
-        <label style="display:flex;align-items:center;gap:8px;margin:10px 0;cursor:pointer;">
-            <input type="checkbox" name="vat_exempt" id="vat_exempt" value="1"
-                   {% if product and (product.vat_percent or 0) <= 0 %}checked{% endif %}>
-            <span><strong>VAT Exempt</strong> — ከቫት ነፃ (this product has no VAT)</span>
-        </label>
-        <div id="vatPercentWrap" style="margin-top:8px;">
-            <label for="vat_percent">VAT percent on listed price (%)</label>
-            <input type="number" step="0.01" min="0" max="100" id="vat_percent" name="vat_percent"
-                   value="{{ '%.2g'|format(vp if (vp or 0) > 0 else (default_vat_percent or 15)) }}"
-                   style="max-width:140px;">
-            <p class="hint" style="margin-top:6px;">
-                Listed prices are <strong>VAT Inclusive</strong> of this rate (e.g. 15 = 15%).
-                Ethiopia standard is often 15%. Set 0 or tick Exempt for VAT-free items.
-            </p>
-        </div>
+        <input type="number" step="0.01" min="0" max="100" id="vat_percent" name="vat_percent"
+               value="{{ '%.2g'|format(vp if vp is not none else (default_vat_percent or 15)) }}"
+               style="max-width:140px;margin-top:8px;">
+        <p class="hint" style="margin-top:6px;">
+            Listed prices are <strong>VAT Inclusive</strong> of this rate (e.g. 15 = 15%).
+            Ethiopia standard is often 15%.
+        </p>
     </div>
-    <script>
-    (function(){
-      var ex = document.getElementById('vat_exempt');
-      var wrap = document.getElementById('vatPercentWrap');
-      var inp = document.getElementById('vat_percent');
-      function sync(){
-        if (!ex || !wrap) return;
-        wrap.style.opacity = ex.checked ? '0.45' : '1';
-        if (inp) inp.disabled = !!ex.checked;
-      }
-      if (ex) { ex.addEventListener('change', sync); sync(); }
-    })();
-    </script>
 
     <h3>Prices & Stock by size / ዋጋ እና ክምችት በመጠን</h3>
     <p class="hint">ለእያንዳንዱ መጠን ዋጋ ያስገቡ። Example: unit 850 ብር, bulk min 10, bulk price 800 ብር → buying 10+ uses 800 each.</p>

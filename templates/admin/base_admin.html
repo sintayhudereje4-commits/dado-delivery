@@ -79,7 +79,7 @@
 
   var badge = document.getElementById('liveRefreshBadge');
   var liveText = document.getElementById('liveText');
-  var INTERVAL_MS = 5000;
+  var INTERVAL_MS = (ep === 'admin_orders') ? 10000 : 5000;
   var lastCheck = Date.now();
   var fingerprint = '';
 
@@ -107,6 +107,11 @@
       if ((el.value || '').trim()) dirty = true;
     });
     if (dirty) return 'search';
+    // Orders bulk form: pause while admin is editing any field
+    if (ep === 'admin_orders') {
+      var form = document.getElementById('ordersBulkForm');
+      if (form && form.getAttribute('data-dirty') === '1') return 'editing';
+    }
     return null;
   }
 
