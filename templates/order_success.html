@@ -122,6 +122,43 @@
             </form>
         </div>
 
+        {% if order.delivery_code and order.status in ('confirmed', 'preparing', 'out_for_delivery') %}
+        <div class="order-details-box" style="margin-top:12px;background:#f3e5f5;color:#4a148c;">
+            <p style="margin:0 0 4px;"><strong>{% if current_lang == 'am' %}የማድረሻ ኮድዎ{% else %}Your delivery code{% endif %}:</strong></p>
+            <p style="font-size:2rem;letter-spacing:8px;font-weight:800;margin:0;">{{ order.delivery_code }}</p>
+            <p style="font-size:.85rem;margin:6px 0 0;">
+                {% if current_lang == 'am' %}እቃውን ሲቀበሉ ብቻ ይህን ኮድ ለአጓጓዡ ይስጡ። ከዚያ በፊት ለማንም አይስጡ።{% else %}Give this code to the driver only when you receive the goods. Never share it before.{% endif %}
+            </p>
+        </div>
+        {% endif %}
+
+        {% if order.delivery_issue and order.status not in ('delivered', 'cancelled') %}
+        <div class="order-details-box" style="margin-top:12px;background:#fff3e0;color:#e65100;">
+            {% if current_lang == 'am' %}በማድረሱ ላይ ችግር ተፈጥሯል፤ እናነጋግርዎታለን። ስልክዎን ክፍት ያድርጉ።{% else %}There was a problem with the delivery. We will contact you - please keep your phone on.{% endif %}
+        </div>
+        {% endif %}
+
+        {% if order.status == 'cancelled' and order.refund_status %}
+        <div class="order-details-box" style="margin-top:12px;background:#e3f2fd;color:#0d47a1;">
+            {% if order.refund_status == 'due' %}
+                {% if current_lang == 'am' %}የከፈሉት ገንዘብ ተመላሽ በሂደት ላይ ነው።{% else %}Your refund is being processed.{% endif %}
+            {% else %}
+                {% if current_lang == 'am' %}ገንዘብዎ ተመልሷል።{% else %}Your payment was refunded.{% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% set has_proof = order.payment_required and (order.receipt_path or order.transaction_id) %}
+        {% if order.status in ('pending', 'confirmed') and not order.transporter_id and order.payment_status != 'confirmed' and not has_proof %}
+        <form method="POST" action="{{ url_for('customer_cancel_order', order_number=order.order_number) }}" style="margin-top:14px;"
+              onsubmit="return confirm('{% if current_lang == 'am' %}ትዕዛዙን መሰረዝ ይፈልጋሉ?{% else %}Cancel this order?{% endif %}');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn" style="background:#c62828;color:#fff;">
+                {% if current_lang == 'am' %}ትዕዛዙን ሰርዝ{% else %}Cancel order{% endif %}
+            </button>
+        </form>
+        {% endif %}
+
         <a href="{{ url_for('index') }}" class="btn btn-primary" style="margin-top:16px;">
             {% if current_lang == 'am' %}ወደ መነሻ{% else %}Back to Home{% endif %}
         </a>
@@ -152,6 +189,9 @@
   }
   paint({{ order.status|tojson }});
   var lastPay = {{ order.payment_status|tojson }};
+  var lastStatus = {{ order.status|tojson }};
+  var startedAt = Date.now();
+  var finished = (lastStatus === 'delivered' || lastStatus === 'cancelled');
 
   function poll() {
     if (document.visibilityState !== 'visible') return;
@@ -162,6 +202,13 @@
       .then(function(d){
         if (!d) return;
         paint(d.status);
+        if (d.status && d.status !== lastStatus) {
+          // status changed (e.g. dispatched): reload so the delivery code / buttons update
+          lastStatus = d.status;
+          location.reload();
+          return;
+        }
+        if (d.status === 'delivered' || d.status === 'cancelled') finished = true;
         var est = document.getElementById('estHours');
         var di = document.getElementById('deliveryInfo');
         if (d.estimated_delivery && est && di) {
@@ -190,8 +237,14 @@
         if (cod) cod.style.display = d.payment_status === 'awaiting_customer' ? '' : 'none';
       }).catch(function(){});
   }
-  setInterval(poll, 1000);
-  setTimeout(poll, 400);
+  // Gentle polling: every 5 s for the first 3 minutes, then every 20 s; stops when the order is closed.
+  function loop() {
+    if (finished) return;
+    poll();
+    var delay = (Date.now() - startedAt) < 180000 ? 5000 : 20000;
+    setTimeout(loop, delay);
+  }
+  setTimeout(loop, 800);
 })();
 </script>
 {% endblock %}

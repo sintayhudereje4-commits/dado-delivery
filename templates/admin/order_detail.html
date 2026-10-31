@@ -267,8 +267,59 @@
             <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}" alt="COD receipt"
                  style="max-width:220px;border-radius:8px;margin-top:6px;border:1px solid #ddd;">
         </a>
+        {% set diff = ((order.cod_amount_collected or 0) - order.total_amount)|abs %}
+        {% if order.cod_amount_collected is not none and diff > [1, order.total_amount * 0.02]|max %}
+        <p style="margin-top:10px;color:#c62828;font-weight:700;">⚠ Collected amount differs from the order total by {{ '%.0f'|format(diff) }} ብር.</p>
+        {% endif %}
+        {% if order.cod_approved %}
+        <p style="color:#2e7d32;font-weight:700;">✓ Approved by admin</p>
+        {% endif %}
+        {% if order.status != 'delivered' %}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+            {% if not order.cod_approved %}
+            <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="cod_approve">
+                <button class="btn btn-sm btn-primary" type="submit">Approve receipt / amount</button></form>
+            {% endif %}
+            <form method="POST" onsubmit="return confirm('Clear this receipt so the transporter can upload it again?');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="cod_reset">
+                <button class="btn btn-sm btn-outline" type="submit">Clear &amp; let transporter re-upload</button></form>
+        </div>
+        {% endif %}
         {% else %}
         <p style="color:#e65100;">Waiting for transporter delivery receipt…</p>
+        {% endif %}
+    </div>
+{% endif %}
+
+{% if order.delivery_code %}
+    <div class="detail-card">
+        <h3>Delivery code</h3>
+        <p style="margin:0;"><code style="font-size:1.3rem;letter-spacing:4px;">{{ order.delivery_code }}</code>
+        <small style="color:#777;">— the customer gives this to the transporter at hand-over (proof of delivery).</small></p>
+    </div>
+{% endif %}
+
+{% if order.delivery_issue %}
+    <div class="detail-card" style="border-left:4px solid #e65100;">
+        <h3>⚠ Delivery problem</h3>
+        <p><strong>{{ order.delivery_issue }}</strong>{% if order.delivery_issue_at %}<br><small>{{ order.delivery_issue_at|addis }}</small>{% endif %}</p>
+        <p style="font-size:.9rem;color:#555;">Call the customer ({{ order.phone }}), then re-assign / cancel the order, or clear this notice.</p>
+        <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="clear_issue">
+            <button class="btn btn-sm btn-outline" type="submit">Mark as handled</button></form>
+    </div>
+{% endif %}
+
+{% if order.refund_status %}
+    <div class="detail-card" style="border-left:4px solid {{ '#c62828' if order.refund_status == 'due' else '#2e7d32' }};">
+        <h3>Refund</h3>
+        {% if order.refund_status == 'due' %}
+        <p><strong style="color:#c62828;">Refund due:</strong> this order was paid ({{ '%.0f'|format(order.total_amount) }} ብር) and then cancelled. Send the money back to the customer, then record it here.</p>
+        <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="refund_done">
+            <input type="text" name="refund_note" maxlength="255" placeholder="Bank / transaction reference" style="flex:1;min-width:200px;padding:8px;border:1px solid #ccc;border-radius:8px;">
+            <button class="btn btn-sm btn-primary" type="submit">Mark refunded</button>
+        </form>
+        {% else %}
+        <p style="margin:0;color:#2e7d32;"><strong>✓ Refunded</strong>{% if order.refunded_at %} — {{ order.refunded_at|addis }}{% endif %}{% if order.refund_note %} · {{ order.refund_note }}{% endif %}</p>
         {% endif %}
     </div>
 {% endif %}

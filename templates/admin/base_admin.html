@@ -22,6 +22,8 @@
             <a href="{{ url_for('admin_transporters') }}" class="nav-item {% if request.endpoint == 'admin_transporters' %}active{% endif %}">Transporters</a>
             <a href="{{ url_for('admin_support') }}" class="nav-item {% if 'support' in request.endpoint %}active{% endif %}">Support</a>
             <a href="{{ url_for('admin_vat_delivery') }}" class="nav-item {% if request.endpoint == 'admin_vat_delivery' %}active{% endif %}">VAT &amp; Delivery</a>
+            <a href="{{ url_for('admin_admins') }}" class="nav-item {% if request.endpoint == 'admin_admins' %}active{% endif %}">Admins</a>
+            <a href="{{ url_for('admin_audit') }}" class="nav-item {% if request.endpoint == 'admin_audit' %}active{% endif %}">Audit log</a>
             <a href="{{ url_for('admin_settings') }}" class="nav-item {% if request.endpoint == 'admin_settings' %}active{% endif %}">Settings</a>
             <a href="{{ url_for('index') }}" class="nav-item" target="_blank">View Site</a>
             <form method="POST" action="{{ url_for('admin_logout') }}" class="inline-form">
@@ -155,6 +157,7 @@
         if (data.fp !== fingerprint) {
           fingerprint = data.fp;
           setBadge('updating', 'New data — updating…');
+          try { sessionStorage.setItem('dadoBeep', '1'); } catch (e) {}
           location.reload();
           return;
         }
@@ -164,6 +167,23 @@
         setBadge('paused', 'Live · retrying…');
       });
   }
+
+  // Short beep + title marker after the page reloaded because something new arrived.
+  try {
+    if (sessionStorage.getItem('dadoBeep') === '1') {
+      sessionStorage.removeItem('dadoBeep');
+      if (ep === 'admin_orders' || ep === 'admin_dashboard' || ep === 'admin_support') {
+        document.title = '● ' + document.title;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+          var ctx = new AC(), osc = ctx.createOscillator(), gain = ctx.createGain();
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.frequency.value = 880; gain.gain.value = 0.08;
+          osc.start(); osc.stop(ctx.currentTime + 0.25);
+        }
+      }
+    }
+  } catch (e) {}
 
   setInterval(tickLabel, 1000);
   setInterval(poll, INTERVAL_MS);

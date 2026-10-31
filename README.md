@@ -66,11 +66,41 @@ Open: http://127.0.0.1:5000
 2. **Admin → Settings:** change the admin password.
 3. **Admin → Transporters:** add your riders (if you leave the password empty a temporary one is shown once).
 
-## Payment rules
+## Order and payment flow (how it really works)
 
-- Orders **100 – 100,000 ETB**: customer pays by bank deposit first (transaction ID or receipt photo); the admin confirms it.
-- Orders **over 100,000 ETB**: cash on delivery; the transporter uploads the receipt.
-- The limits are the constants `PREPAY_MIN` / `PREPAY_MAX` at the top of `app.py`.
+1. The customer places the order (guest or logged in). Stock is reserved. The delivery fee is **not** known yet.
+2. The admin sets the delivery fee and presses *Request payment*:
+   - total **100 – 100,000 ETB** → customer pays by bank and uploads a receipt / transaction ID; the admin confirms
+     (confirmation needs a receipt or transaction ID);
+   - total **over 100,000 ETB** → cash on delivery: the customer accepts the total, the transporter collects the money and uploads a receipt;
+   - total **under 100 ETB** → no payment step.
+3. After payment is confirmed (or COD accepted) the admin assigns a transporter. The customer gets an SMS with a
+   **4-digit delivery code**; the transporter must enter it to mark the order delivered.
+4. The limits are the constants `PREPAY_MIN` / `PREPAY_MAX` at the top of `app.py`.
+
+### Safety rules built in
+- The delivery fee/total can no longer be changed once payment was sent/confirmed or the order is on its way.
+- Orders that were never quoted (`QUOTE_TIMEOUT_HOURS`, default 72) or unpaid without proof (48 h) are cancelled
+  automatically and their stock released. An order with a receipt/transaction ID is never auto-cancelled.
+- Max `MAX_OPEN_ORDERS_PER_PHONE` (default 3) unfinished orders per phone number.
+- Cancelling an order whose bank payment was confirmed marks a **refund due**; the admin records the refund.
+- A COD receipt whose amount differs from the total must be approved by the admin before the transporter can finish.
+- Guest orders are linked to an account only from the same browser, or by phone number only when the phone was verified by SMS.
+
+## Optional settings added in this version
+| Variable | Meaning | Default |
+|---|---|---|
+| `NOTIFY_SMS` | send order SMS (payment request, dispatched + code, delivered, cancelled; assignment to transporter) | on when a real SMS provider is set |
+| `SMS_LANG` | `am` or `en` for those SMS | `am` |
+| `REQUIRE_LOGIN_TO_ORDER` | `1` = only logged-in customers can order (use together with SMS/OTP) | off |
+| `MAX_OPEN_ORDERS_PER_PHONE` | unfinished orders allowed per phone | 3 |
+| `QUOTE_TIMEOUT_HOURS` | auto-cancel never-quoted / unaccepted orders after | 72 |
+| `LOW_STOCK_THRESHOLD` | dashboard low-stock warning | 10 |
+| `FILES_IN_DB` | keep uploaded files in the database | on for PostgreSQL |
+
+Admin panel additions: sales figures and low stock on the dashboard, order filters + pagination + CSV export, refund
+tracking, COD approval, delivery-problem inbox, **Admins** (several staff logins) and **Audit log**. Lost admin password:
+`flask --app app reset-admin` on the server prints a new one.
 
 ## Private files
 
@@ -150,6 +180,19 @@ SMS_PROVIDER=console   # or: twilio | africastalking | http
 
 `SMS_PROVIDER=console` prints the code in the server logs (good for testing on free tier).
 
+
+## Data durability (PostgreSQL + backups)
+
+1. **Use PostgreSQL in production**: set `DATABASE_URL=postgresql://user:pass@host/dbname`
+   (on Render: create a PostgreSQL database and copy its *Internal Database URL*).
+2. **Uploaded files are kept in the database too.** With PostgreSQL every product photo, logo and
+   receipt is copied into table `stored_file` (`FILES_IN_DB=1`, the default for PostgreSQL). The disk is
+   only a cache: if the disk is wiped, files are restored from the database automatically.
+   Existing files are copied into the database at the next start.
+3. **Backups**: `python backup.py` (PostgreSQL → `pg_dump` .sql.gz; SQLite → .zip with DB + uploads).
+   Run it nightly (cron) and copy the files off the server. On a managed PostgreSQL also enable the
+   provider's automatic backups. Test a restore at least once.
+4. The admin dashboard shows a red warning while the site runs on SQLite on Render/Heroku-style hosting.
 
 ## Persistence warning (Render free tier)
 

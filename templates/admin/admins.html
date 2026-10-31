@@ -1,0 +1,44 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Admin accounts{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Admin accounts</h1></div>
+<p class="hint">Give each staff member their own login so every change is recorded under their name (see Audit log).</p>
+
+<form method="POST" class="admin-form" style="margin-bottom:28px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="add">
+    <h3>Add admin</h3>
+    <div class="form-row">
+        <div class="form-group"><label>Username</label><input type="text" name="username" required minlength="3" maxlength="80" autocomplete="off"></div>
+        <div class="form-group"><label>Password (min 8)</label><input type="password" name="password" required minlength="8" autocomplete="new-password"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add admin</button>
+</form>
+
+<div class="table-wrap">
+<table class="admin-table">
+<thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+<tbody>
+{% for a in admins %}
+<tr>
+    <td>{{ a.username }}{% if a.id == current_user.id %} <small>(you)</small>{% endif %}</td>
+    <td>{% if a.is_active is none or a.is_active %}<span class="badge badge-confirmed">active</span>{% else %}<span class="badge badge-cancelled">disabled</span>{% endif %}</td>
+    <td>{{ a.created_at|addis if a.created_at else '' }}</td>
+    <td>
+        <form method="POST" style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="id" value="{{ a.id }}">
+            <input type="password" name="password" placeholder="New password (min 8)" minlength="8" autocomplete="new-password" style="padding:6px;border:1px solid #ccc;border-radius:6px;">
+            <button type="submit" name="action" value="reset_password" class="btn btn-sm btn-outline">Set password</button>
+            {% if a.id != current_user.id %}
+            <button type="submit" name="action" value="toggle" class="btn btn-sm btn-outline">{% if a.is_active is none or a.is_active %}Disable{% else %}Enable{% endif %}</button>
+            <button type="submit" name="action" value="delete" class="btn btn-sm btn-danger" onclick="return confirm('Delete this admin?')">Delete</button>
+            {% endif %}
+        </form>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

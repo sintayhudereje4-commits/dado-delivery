@@ -1,3 +1,12 @@
+# Version 2 - reliability, abuse and workflow fixes
+- Durability: uploads copied into PostgreSQL, backup.py, pool_pre_ping, dashboard warning on SQLite/Render.
+- Abuse: stale-order auto-cancel (also never-quoted orders), per-phone open-order cap, optional login-to-order,
+  guest orders only attached with proof, per-phone login limits (CGNAT friendly).
+- Payments: confirm needs proof, fee locked after payment, refund tracking, COD amount approval, bulk-save parity.
+- Transporter: delivery code, decline order, report problem, forced password change, COD re-upload.
+- Customer: cancel order, delivery code + SMS notifications, simpler password rule, gentler polling.
+- Admin: stats, low stock, CSV export, pagination, multi-admin, audit log, new-order beep, reset-admin command.
+
 # የተደረጉ ማስተካከያዎች (Changes)
 
 ## 2026-10-29 — AI toggle, checkout, login separation

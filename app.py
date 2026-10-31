@@ -18,10 +18,14 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlencode
 import urllib.request
 import base64
+import mimetypes
+import threading
+import csv
+from io import BytesIO, StringIO
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    flash, session, jsonify, send_from_directory, abort
+    flash, session, jsonify, send_from_directory, abort, g, Response
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -29,10 +33,11 @@ from flask_login import (
     login_required, current_user
 )
 from flask_babel import Babel, gettext as _, lazy_gettext as _l
-from sqlalchemy import or_, inspect as sa_inspect
+from sqlalchemy import or_, and_, func, inspect as sa_inspect
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 from markupsafe import Markup
+from werkzeug.exceptions import NotFound
 try:
     from PIL import Image, ImageOps
     Image.MAX_IMAGE_PIXELS = 50_000_000  # reject decompression bombs
@@ -170,6 +175,15 @@ app.config['SECRET_KEY'] = _load_secret_key()
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url or ('sqlite:///' + os.path.join(app.root_path, 'dado.db'))
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'timeout': 30}}
+else:
+    # Hosted PostgreSQL closes idle connections; test them before use and recycle them.
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 280}
+# Keep a copy of every uploaded file inside the database. The disk copy is only a cache:
+# if the disk is wiped (redeploy on Render free), files are restored from the database.
+# Default: ON for PostgreSQL, OFF for SQLite (the SQLite file lives on the same disk, so a
+# copy there protects nothing). Override with FILES_IN_DB=1 / FILES_IN_DB=0.
+_files_default = '0' if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite') else '1'
+FILES_IN_DB = os.environ.get('FILES_IN_DB', _files_default).strip().lower() not in ('0', 'false', 'no', 'off')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'uploads')
 # Receipts are financial documents: kept OUTSIDE /static and served only to authorised users.
@@ -661,6 +675,7 @@ class Admin(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=utcnow)
 
     def set_password(self, password):
@@ -769,6 +784,8 @@ class Customer(db.Model):
     phone = db.Column(db.String(30), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
+    # True once the phone number was confirmed with an SMS code (OTP).
+    phone_verified = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=utcnow)
 
     def set_password(self, password):
@@ -786,6 +803,7 @@ class Transporter(db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     vehicle_info = db.Column(db.String(120), default='')  # motorcycle / car / plate
     is_active = db.Column(db.Boolean, default=True)
+    must_change_password = db.Column(db.Boolean, default=False)  # set for temporary passwords
     created_at = db.Column(db.DateTime, default=utcnow)
 
     def set_password(self, password):
@@ -831,6 +849,17 @@ class Order(db.Model):
     delivery_receipt_at = db.Column(db.DateTime, nullable=True)
     payment_note = db.Column(db.Text, default='')  # admin note to customer
     stock_released = db.Column(db.Boolean, default=False)  # True once cancelled-order stock was returned
+    # Refund tracking: '' (none) | 'due' (paid order was cancelled) | 'refunded'
+    refund_status = db.Column(db.String(20), default='')
+    refund_note = db.Column(db.String(255), default='')
+    refunded_at = db.Column(db.DateTime, nullable=True)
+    # 4-digit code the customer gives the transporter on receipt (proof of delivery)
+    delivery_code = db.Column(db.String(8), default='')
+    # Problem reported by the transporter (customer unreachable, wrong address, ...)
+    delivery_issue = db.Column(db.String(255), default='')
+    delivery_issue_at = db.Column(db.DateTime, nullable=True)
+    # Admin accepted a COD receipt whose amount differs from the order total
+    cod_approved = db.Column(db.Boolean, default=False)
     transporter_id = db.Column(db.Integer, db.ForeignKey('transporter.id'), nullable=True)
     assigned_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow)
@@ -863,6 +892,24 @@ class StatusLog(db.Model):
     new_value = db.Column(db.String(40), default='')
     note = db.Column(db.String(255), default='')
     created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class StoredFile(db.Model):
+    """Durable copy of an uploaded file (product photos, logos, receipts)."""
+    id = db.Column(db.Integer, primary_key=True)
+    rel_path = db.Column(db.String(255), unique=True, nullable=False, index=True)  # 'uploads/x.jpg' | 'private/x.jpg'
+    mimetype = db.Column(db.String(60), default='application/octet-stream')
+    data = db.Column(db.LargeBinary, nullable=False)
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class AuditLog(db.Model):
+    """Who changed what in the admin panel (products, prices, banks, staff ...)."""
+    id = db.Column(db.Integer, primary_key=True)
+    actor = db.Column(db.String(80), default='')
+    action = db.Column(db.String(60), default='', index=True)
+    detail = db.Column(db.String(500), default='')
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
 
 class RateHit(db.Model):
@@ -927,7 +974,8 @@ babel.init_app(app, locale_selector=get_locale)
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(Admin, int(user_id))
+    a = db.session.get(Admin, int(user_id))
+    return a if (a and a.is_active is not False) else None
 
 
 # ---------------------------------------------------------------------------
@@ -989,10 +1037,10 @@ def save_image(file, prefix='img', private=False):
     if not HAS_PILLOW:
         name = f"{prefix}_{stamp}_{token}.{sniffed}"
         try:
-            file.save(os.path.join(folder, name))
+            file.stream.seek(0)
+            return _store_bytes(file.stream.read(), name, private)
         except Exception:
             return None
-        return f"{'private' if private else 'uploads'}/{name}"
 
     try:
         img = Image.open(file.stream)
@@ -1020,8 +1068,9 @@ def save_image(file, prefix='img', private=False):
                 img = img.convert('RGBA')
             save_kwargs = {'quality': 85}
         name = f"{prefix}_{stamp}_{token}.{ext}"
-        img.save(os.path.join(folder, name), format=fmt, **save_kwargs)
-        return f"{'private' if private else 'uploads'}/{name}"
+        buf = BytesIO()
+        img.save(buf, format=fmt, **save_kwargs)
+        return _store_bytes(buf.getvalue(), name, private)
     except Exception:
         app.logger.warning('Rejected an invalid image upload', exc_info=True)
         return None
@@ -1037,6 +1086,58 @@ def _resolve_stored_file(rel):
     return None, None
 
 
+def _guess_mime(name):
+    return mimetypes.guess_type(name)[0] or 'application/octet-stream'
+
+
+def _store_bytes(data, name, private):
+    """Write a file to disk (cache) and to the database (durable copy). Returns rel path."""
+    rel = f"{'private' if private else 'uploads'}/{name}"
+    folder = PRIVATE_UPLOAD_FOLDER if private else app.config['UPLOAD_FOLDER']
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, name), 'wb') as fh:
+        fh.write(data)
+    if FILES_IN_DB:
+        # Separate connection: never commit the caller's half-finished request transaction.
+        try:
+            tbl = StoredFile.__table__
+            with db.engine.begin() as conn:
+                conn.execute(tbl.delete().where(tbl.c.rel_path == rel))
+                conn.execute(tbl.insert().values(rel_path=rel, data=data,
+                                                 mimetype=_guess_mime(name), created_at=utcnow()))
+        except SQLAlchemyError:
+            app.logger.exception('Could not keep a database copy of %s', rel)
+    return rel
+
+
+def _restore_from_db(rel):
+    """Return (folder, name) after re-creating a missing disk file from the database, else (None, None)."""
+    folder, name = _resolve_stored_file(rel)
+    if not folder or not name:
+        return None, None
+    path = os.path.join(folder, name)
+    if os.path.isfile(path):
+        return folder, name
+    if not FILES_IN_DB:
+        return None, None
+    try:
+        tbl = StoredFile.__table__
+        key = f"{'private' if folder == PRIVATE_UPLOAD_FOLDER else 'uploads'}/{name}"
+        with db.engine.connect() as conn:
+            row = conn.execute(tbl.select().with_only_columns(tbl.c.data).where(tbl.c.rel_path == key)).first()
+    except SQLAlchemyError:
+        return None, None
+    if not row:
+        return None, None
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(path, 'wb') as fh:
+            fh.write(row[0])
+    except OSError:
+        return None, None
+    return folder, name
+
+
 def delete_stored_file(rel):
     folder, name = _resolve_stored_file(rel)
     if not folder or not name:
@@ -1045,22 +1146,218 @@ def delete_stored_file(rel):
         os.remove(os.path.join(folder, name))
     except OSError:
         pass
+    if FILES_IN_DB:
+        try:
+            tbl = StoredFile.__table__
+            key = f"{'private' if folder == PRIVATE_UPLOAD_FOLDER else 'uploads'}/{name}"
+            with db.engine.begin() as conn:
+                conn.execute(tbl.delete().where(tbl.c.rel_path == key))
+        except SQLAlchemyError:
+            app.logger.exception('Could not delete database copy of %s', rel)
+
+
+def backfill_files_to_db():
+    """Copy files that exist only on disk into the database (runs at startup)."""
+    if not FILES_IN_DB:
+        return 0
+    added = 0
+    known = {r[0] for r in db.session.query(StoredFile.rel_path).all()}
+    for prefix, folder in (('uploads', app.config['UPLOAD_FOLDER']), ('private', PRIVATE_UPLOAD_FOLDER)):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            rel = f'{prefix}/{name}'
+            path = os.path.join(folder, name)
+            if rel in known or not os.path.isfile(path) or not allowed_file(name):
+                continue
+            try:
+                with open(path, 'rb') as fh:
+                    db.session.add(StoredFile(rel_path=rel, data=fh.read(), mimetype=_guess_mime(name)))
+                added += 1
+            except OSError:
+                continue
+    if added:
+        db.session.commit()
+    return added
+
+
+# Public images are served by Flask's static route. If the file is missing on disk
+# (ephemeral disk wiped), restore it from the database instead of returning 404.
+_static_view = app.view_functions['static']
+
+
+def _static_with_db_fallback(filename):
+    try:
+        return _static_view(filename=filename)
+    except NotFound:
+        if filename.startswith('uploads/'):
+            folder, name = _restore_from_db(filename)
+            if folder and name:
+                return _static_view(filename=filename)
+        raise
+
+
+app.view_functions['static'] = _static_with_db_fallback
+
+
+def tx(am, en):
+    """Pick the Amharic or English text for the current visitor."""
+    try:
+        return am if get_locale() == 'am' else en
+    except Exception:
+        return en
+
+
+def audit(action, detail=''):
+    """Record an admin action. The caller commits."""
+    try:
+        actor = (f'admin:{current_user.username}'
+                 if current_user.is_authenticated and isinstance(current_user, Admin) else 'system')
+    except Exception:
+        actor = 'system'
+    try:
+        db.session.add(AuditLog(actor=actor[:80], action=(action or '')[:60], detail=(detail or '')[:500]))
+    except Exception:
+        app.logger.exception('audit failed')
+
+
+# ---- SMS notifications (sent in the background after a successful request) ----
+def sms_notify_enabled():
+    flag = (os.environ.get('NOTIFY_SMS') or '').strip().lower()
+    if flag in ('0', 'false', 'no', 'off'):
+        return False
+    if flag in ('1', 'true', 'yes', 'on'):
+        return True
+    return sms_provider_name() in ('twilio', 'africastalking', 'http')
+
+
+def notify_sms(phone, message):
+    """Queue an SMS; it is sent after the response succeeds. Never raises."""
+    try:
+        if not phone or not message or not sms_notify_enabled():
+            return
+        queue = g.get('_sms_queue')
+        if queue is None:
+            queue = []
+            g._sms_queue = queue
+        queue.append((phone, message))
+    except Exception:
+        app.logger.exception('notify_sms queue failed')
+
+
+def _send_sms_batch(items):
+    for phone, message in items:
+        try:
+            send_sms(phone, message)
+        except Exception:
+            app.logger.exception('background SMS failed')
+
+
+@app.after_request
+def flush_sms_queue(resp):
+    try:
+        queue = g.pop('_sms_queue', None)
+        if queue and resp.status_code < 400:
+            threading.Thread(target=_send_sms_batch, args=(list(queue),), daemon=True).start()
+    except Exception:
+        app.logger.exception('flush_sms_queue failed')
+    return resp
+
+
+def _short_no(order):
+    return '#' + (order.order_number or '')[-6:]
+
+
+SMS_TEXTS = {
+    'pay_request': {
+        'am': 'Dado: ትዕዛዝ {no}። {total} ብር በባንክ ይክፈሉና ደረሰኝ በድረ ገጹ ይላኩ።',
+        'en': 'Dado: order {no}. Please pay {total} ETB by bank and upload the receipt on the website.'},
+    'cod_notice': {
+        'am': 'Dado: ትዕዛዝ {no}። ጠቅላላ {total} ብር (ሲደርስ ይከፈላል)። በትዕዛዝ ገጽ ያረጋግጡ።',
+        'en': 'Dado: order {no}. Total {total} ETB, pay on delivery. Please confirm on your order page.'},
+    'payment_ok': {
+        'am': 'Dado: ክፍያዎ ተረጋግጧል፤ ትዕዛዝ {no} እየተዘጋጀ ነው።',
+        'en': 'Dado: payment confirmed for order {no}. We are preparing it.'},
+    'payment_rejected': {
+        'am': 'Dado: ትዕዛዝ {no} ክፍያ አልተረጋገጠም። አዲስ ደረሰኝ ይላኩ ወይም ያነጋግሩን።',
+        'en': 'Dado: payment for order {no} was not accepted. Please upload a new receipt or contact us.'},
+    'dispatched': {
+        'am': 'Dado: ትዕዛዝ {no} ተልኳል። እቃውን ሲቀበሉ ብቻ ለአጓጓዡ ኮድ {code} ይስጡ።',
+        'en': 'Dado: order {no} is on its way. Give the driver code {code} only when you receive the goods.'},
+    'dispatched_nocode': {
+        'am': 'Dado: ትዕዛዝ {no} ተልኳል።',
+        'en': 'Dado: order {no} is on its way.'},
+    'delivered': {
+        'am': 'Dado: ትዕዛዝ {no} ደርሷል። እናመሰግናለን!',
+        'en': 'Dado: order {no} was delivered. Thank you!'},
+    'cancelled': {
+        'am': 'Dado: ትዕዛዝ {no} ተሰርዟል። ጥያቄ ካለዎት ያነጋግሩን።',
+        'en': 'Dado: order {no} was cancelled. Contact us if you have questions.'},
+    'assigned': {
+        'am': 'Dado: አዲስ ትዕዛዝ {no} ተመድቦልዎታል። የአጓጓዥ ገጽዎን ይክፈቱ።',
+        'en': 'Dado: new delivery {no} assigned to you. Open your transporter page.'},
+}
+
+
+def order_sms(order, key, to='customer', **kw):
+    lang = (os.environ.get('SMS_LANG') or 'am').strip().lower()
+    lang = 'en' if lang == 'en' else 'am'
+    tpl = SMS_TEXTS.get(key, {}).get(lang)
+    if not tpl:
+        return
+    phone = order.phone
+    if to == 'transporter':
+        t = db.session.get(Transporter, order.transporter_id) if order.transporter_id else None
+        phone = t.phone if t else None
+    try:
+        text = tpl.format(no=_short_no(order), total=f'{float(order.total_amount or 0):.0f}',
+                          code=order.delivery_code or '', **kw)
+    except Exception:
+        return
+    notify_sms(phone, text)
+
+
+def admin_actor():
+    try:
+        return f'admin:{current_user.username}'
+    except Exception:
+        return 'admin'
+
+
+def fee_locked(order):
+    """True when changing the delivery fee / total would contradict what the customer already did."""
+    if order.payment_status == 'confirmed':
+        return True
+    if order.payment_required and order.payment_status == 'pending' and (order.receipt_path or order.transaction_id):
+        return True
+    return order.status == 'out_for_delivery'
+
+
+def cod_mismatch(order):
+    """True when the COD amount collected differs from the order total by more than ~2%."""
+    if order.cod_amount_collected is None:
+        return False
+    expected = float(order.total_amount or 0)
+    return expected > 0 and abs(float(order.cod_amount_collected) - expected) > max(1.0, expected * 0.02)
 
 
 def generate_order_number():
     return f"DD{utcnow().strftime('%Y%m%d%H%M%S')}{secrets.token_hex(8).upper()}"
 
 
+COMMON_PASSWORDS = {
+    '123456', '1234567', '12345678', '123456789', '111111', '000000', '654321', '123123',
+    'password', 'qwerty', 'abcdef', 'abc123', '121212', '666666', '112233',
+}
+
+
 def validate_customer_password(password):
-    """Min 6 chars, 1 uppercase, 1 digit, 1 special character."""
+    """Min 6 characters (any script, so Amharic keyboards work) and not trivially guessable."""
     if not password or len(password) < 6:
         return False, _('Password must be at least 6 characters')
-    if not any(c.isupper() for c in password):
-        return False, _('Password must include at least 1 capital letter (A-Z)')
-    if not any(c.isdigit() for c in password):
-        return False, _('Password must include at least 1 number')
-    if not any((not c.isalnum() and not c.isspace()) for c in password):
-        return False, _('Password must include at least 1 symbol (!@#$)')
+    if len(set(password)) < 3 or password.lower() in COMMON_PASSWORDS:
+        return False, tx('ይህ የይለፍ ቃል በቀላሉ ይገመታል። ሌላ ይምረጡ (ለምሳሌ ስም + ቁጥር)።',
+                         'This password is too easy to guess. Please choose another one.')
     return True, ''
 
 
@@ -1106,8 +1403,10 @@ def login_blocked(scope, ident):
     # Customer / transporter: primarily lock by IP so an attacker cannot lock someone else's phone.
     # Identity lock is higher threshold.
     if scope in ('customer', 'transporter'):
-        return (rate_count(f'loginfail:{scope}:{ident}', LOGIN_WINDOW) >= 12 or
-                rate_count(f'loginfail-ip:{scope}:{client_ip()}', LOGIN_WINDOW) >= LOGIN_MAX_FAILS)
+        # Mobile networks (CGNAT) put many real customers behind one IP, so the IP limit is generous
+        # and the per-phone limit does the real protection.
+        return (rate_count(f'loginfail:{scope}:{ident}', LOGIN_WINDOW) >= 8 or
+                rate_count(f'loginfail-ip:{scope}:{client_ip()}', LOGIN_WINDOW) >= 60)
     return (rate_count(f'loginfail:{scope}:{ident}', LOGIN_WINDOW) >= LOGIN_MAX_FAILS or
             rate_count(f'loginfail-ip:{scope}:{client_ip()}', LOGIN_WINDOW) >= 30)
 
@@ -1127,18 +1426,27 @@ def login_succeeded(scope, ident):
 
 
 def attach_guest_orders_to_customer(customer):
-    """Link past guest checkouts (same phone) to this customer account."""
-    if not customer or not customer.phone:
+    """Link guest orders to this account - but only with proof of ownership.
+
+    * orders created in THIS browser session (order numbers kept in the session) are always linked;
+    * orders matched only by phone number are linked just when the phone was verified by SMS,
+      otherwise anyone could register with a stranger's number and read their orders.
+    """
+    if not customer:
         return
-    phones = {customer.phone}
-    # also try denormalized local form
-    p = customer.phone
-    if p.startswith('+251') and len(p) >= 13:
-        phones.add('0' + p[4:])
-    Order.query.filter(
-        Order.customer_id.is_(None),
-        Order.phone.in_(list(phones)),
-    ).update({Order.customer_id: customer.id}, synchronize_session=False)
+    mine = [n for n in (session.get('pending_orders') or []) if isinstance(n, str)]
+    if mine:
+        Order.query.filter(Order.customer_id.is_(None), Order.order_number.in_(mine)) \
+            .update({Order.customer_id: customer.id}, synchronize_session=False)
+    if customer.phone and getattr(customer, 'phone_verified', False):
+        phones = {customer.phone}
+        p = customer.phone
+        if p.startswith('+251') and len(p) >= 13:
+            phones.add('0' + p[4:])
+        Order.query.filter(
+            Order.customer_id.is_(None),
+            Order.phone.in_(list(phones)),
+        ).update({Order.customer_id: customer.id}, synchronize_session=False)
     db.session.commit()
 
 
@@ -1178,7 +1486,7 @@ def admin_required(f):
         if not current_user.is_authenticated:
             return redirect(url_for('admin_login', next=request.path))
         # ensure it is Admin account (not confused with other sessions)
-        if not isinstance(current_user, Admin):
+        if not isinstance(current_user, Admin) or current_user.is_active is False:
             logout_user()
             return redirect(url_for('admin_login', next=request.path))
         return f(*args, **kwargs)
@@ -1188,22 +1496,66 @@ def admin_required(f):
 
 
 def release_stale_unpaid_orders(max_age_hours=48):
-    """Cancel old unpaid/rejected pending orders so reserved stock is released."""
+    """Cancel old orders that never progressed so their reserved stock is released.
+
+    * bank-payment orders still unpaid/rejected after `max_age_hours` (only if NO receipt or
+      transaction ID was sent - an order with proof waits for the admin, it is never auto-cancelled);
+    * orders the admin never quoted (awaiting_quote) or whose COD fee the customer never accepted
+      (awaiting_customer) after QUOTE_TIMEOUT_HOURS (default 72).
+    """
+    quote_hours = form_env_int('QUOTE_TIMEOUT_HOURS', 72, 6, 24 * 30)
     cutoff = utcnow() - timedelta(hours=max_age_hours)
+    quote_cutoff = utcnow() - timedelta(hours=quote_hours)
+    no_proof = and_(or_(Order.receipt_path.is_(None), Order.receipt_path == ''),
+                    or_(Order.transaction_id.is_(None), Order.transaction_id == ''))
     stale = (Order.query.filter(
         Order.status == 'pending',
-        Order.payment_required == True,
-        Order.payment_status.in_(['pending', 'rejected']),
-        Order.created_at < cutoff,
         Order.stock_released == False,
+        Order.transporter_id.is_(None),
+        or_(
+            and_(Order.payment_required == True,
+                 Order.payment_status.in_(['pending', 'rejected']),
+                 Order.created_at < cutoff,
+                 no_proof),
+            and_(Order.payment_status.in_(['awaiting_quote', 'awaiting_customer']),
+                 Order.created_at < quote_cutoff),
+        ),
     ).limit(50).all())
     for order in stale:
-        err = change_order_status(order, 'cancelled', actor='system', note='auto-cancel unpaid after timeout')
+        err = change_order_status(order, 'cancelled', actor='system', note='auto-cancel: no payment / no confirmation in time')
         if not err:
-            order.payment_note = (order.payment_note or '') + ' [Auto-cancelled: payment not confirmed in time]'
+            order.payment_note = (order.payment_note or '') + ' [Auto-cancelled: not completed in time]'
     if stale:
         db.session.commit()
     return len(stale)
+
+
+def form_env_int(name, default, lo, hi):
+    try:
+        v = int((os.environ.get(name) or '').strip() or default)
+    except ValueError:
+        v = default
+    return max(lo, min(hi, v))
+
+
+_last_sweep = [0.0]
+
+
+@app.before_request
+def periodic_sweep():
+    """Run the stale-order cleanup at most every 10 minutes per worker, on any page view."""
+    if request.endpoint in (None, 'static'):
+        return None
+    now = time.time()
+    if now - _last_sweep[0] < 600:
+        return None
+    _last_sweep[0] = now
+    try:
+        release_stale_unpaid_orders()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('periodic sweep failed')
+    return None
 
 
 def log_order_change(order, field, old_value, new_value, actor='', note=''):
@@ -1240,6 +1592,9 @@ def change_order_status(order, new_status, actor='', note=''):
     }
     if new_status not in ALLOWED.get(old, set()):
         return _('Cannot change status from %(old)s to %(new)s', old=old, new=new_status)
+    if old == 'cancelled' and order.refund_status == 'refunded':
+        return tx('ገንዘቡ ተመልሷል፤ ይህን ትዕዛዝ እንደገና መክፈት አይቻልም። አዲስ ትዕዛዝ ይፍጠሩ።',
+                  'The money was already refunded - this order cannot be re-opened. Create a new order.')
     if (new_status in ('out_for_delivery', 'delivered') and order.payment_required
             and order.payment_status != 'confirmed'):
         return _('Confirm the bank payment before dispatching or delivering this order')
@@ -1263,6 +1618,19 @@ def change_order_status(order, new_status, actor='', note=''):
     old_status = old
     order.status = new_status
     log_order_change(order, 'status', old_status, new_status, actor=actor, note=note)
+    if new_status == 'cancelled':
+        # A confirmed bank payment on a cancelled order means money is owed back to the customer.
+        if order.payment_required and order.payment_status == 'confirmed' and order.refund_status != 'refunded':
+            order.refund_status = 'due'
+            order.refund_note = ''
+            log_order_change(order, 'refund', '', 'due', actor=actor, note='order cancelled after payment')
+        order_sms(order, 'cancelled')
+    elif old == 'cancelled' and order.refund_status == 'due':
+        order.refund_status = ''
+    elif new_status == 'out_for_delivery':
+        order_sms(order, 'dispatched' if order.delivery_code else 'dispatched_nocode')
+    elif new_status == 'delivered':
+        order_sms(order, 'delivered')
     return None
 
 
@@ -1427,6 +1795,21 @@ def checkout():
     if not phone:
         return _json_error(_('Please enter a valid Ethiopian phone number (e.g. 0911 234 567)'))
 
+    if (os.environ.get('REQUIRE_LOGIN_TO_ORDER') or '').strip().lower() in ('1', 'true', 'yes', 'on') \
+            and not get_current_customer():
+        return _json_error(tx('ትዕዛዝ ለማዘዝ እባክዎ በመጀመሪያ ይግቡ ወይም ይመዝገቡ።',
+                              'Please log in or register before placing an order.'), 401)
+    # Limit unfinished orders per phone so fake orders cannot lock up the stock.
+    max_open = form_env_int('MAX_OPEN_ORDERS_PER_PHONE', 3, 1, 50)
+    open_count = Order.query.filter(
+        Order.phone == phone,
+        Order.status == 'pending',
+        Order.payment_status.in_(['awaiting_quote', 'awaiting_customer', 'pending', 'rejected']),
+    ).count()
+    if open_count >= max_open:
+        return _json_error(tx('ከዚህ ስልክ ቁጥር ብዙ ያልተጠናቀቁ ትዕዛዞች አሉ። እባክዎ እስኪጠናቀቁ ይጠብቁ ወይም ያነጋግሩን።',
+                              'This phone number already has several unfinished orders. Please wait for them to be processed or contact us.'), 429)
+
     customer_name = (data.get('customer_name') or '').strip()[:120]
     address_text = (data.get('address_text') or '').strip()[:500]
     notes = (data.get('notes') or '').strip()[:1000]
@@ -1553,6 +1936,7 @@ def checkout():
             bank_account_name_snapshot='',
             bank_account_number_snapshot='',
             payment_note=_('Waiting for admin to set delivery fee'),
+            delivery_code=f'{secrets.randbelow(10000):04d}',
         )
         db.session.add(order)
         db.session.flush()
@@ -1670,7 +2054,7 @@ def order_file(oid, kind):
             allowed = order.order_number in (session.get('pending_orders') or [])
     if not allowed:
         abort(403)
-    folder, name = _resolve_stored_file(rel)
+    folder, name = _restore_from_db(rel)
     if not folder or not name:
         abort(404)
     resp = send_from_directory(folder, name)
@@ -1736,9 +2120,9 @@ def ai_help_reply(user_message, settings=None):
     )
     if greet_pat.search(msg) and len(msg) < 40:
         return am_en(
-            f'ሰላም! እኔ የ {site} AI ረዳት ነኝ። Admin ሳይኖር መረጃ እሰጣለሁ።\n'
+            f'ሰላም! እኔ የ {site} አውቶማቲክ ረዳት ነኝ። Admin ሳይኖር መረጃ እሰጣለሁ።\n'
             'ስለ ምርት፣ ዋጋ፣ ማድረሻ፣ ክፍያ ወይም ትዕዛዝ ይጠይቁኝ።',
-            f'Hello! I am the {site} AI assistant. I can help while admin is away.\n'
+            f'Hello! I am the {site} automatic assistant. I can help while admin is away.\n'
             'Ask about products, prices, delivery, payment, or orders.'
         )
 
@@ -1817,9 +2201,9 @@ def ai_help_reply(user_message, settings=None):
     # account
     if any(k in msg or k in raw for k in ['register', 'login', 'account', 'ተመዝገብ', 'ግባ', 'አካውንት', 'password', 'የይለፍ']):
         return am_en(
-            'አካውንት፦ በስልክ ቁጥር ይመዝገቡ። የይለፍ ቃል ቢያንስ 6 ቁምፊ፣ 1 አቢይ ሆሄ፣ 1 ቁጥር፣ 1 ምልክት።\n'
+            'አካውንት፦ በስልክ ቁጥር ይመዝገቡ። የይለፍ ቃል ቢያንስ 6 ቁምፊ (በቀላሉ የሚገመት አይሁን)።\n'
             'ከተመዘገቡ በኋላ ከማንኛውም መሣሪያ Login ማድረግ ይችላሉ። የይለፍ ቃል ከረሱ “የይለፍ ቃል ረሳሁ” ይጠቀሙ።',
-            'Account: Register with your phone number. Password needs 6+ chars, 1 capital, 1 number, 1 symbol.\n'
+            'Account: Register with your phone number. Password needs 6+ characters and must not be easy to guess.\n'
             'After registering you can log in from any device. Use Forgot password if needed.')
 
     # thanks — whole words only
@@ -2040,7 +2424,7 @@ def register_verify():
         phone_digits = phone.replace('+', '')
         email_placeholder = f'{phone_digits}@phone.local'
         c = Customer(name=(pending.get('name') or '')[:120],
-                     email=email_placeholder, phone=phone)
+                     email=email_placeholder, phone=phone, phone_verified=True)
         if pending.get('password_hash'):
             c.password_hash = pending['password_hash']
         else:
@@ -2134,6 +2518,7 @@ def reset_password():
             flash(_('Account not found'), 'error')
             return redirect(url_for('register'))
         c.set_password(password)
+        c.phone_verified = True  # the SMS code proved this person controls the number
         db.session.commit()
         session.pop('pending_reset', None)
         flash(_('Password updated. You can log in now.'), 'success')
@@ -2302,6 +2687,29 @@ def resubmit_payment(order_number):
     return redirect(url_for('order_success', order_number=order_number))
 
 
+@app.route('/order/<order_number>/cancel', methods=['POST'])
+def customer_cancel_order(order_number):
+    """Customer cancels an order that has not been paid for / dispatched yet."""
+    order = Order.query.filter_by(order_number=order_number).first_or_404()
+    if not _can_view_order(order):
+        abort(403)
+    has_proof = bool(order.payment_required and (order.receipt_path or order.transaction_id))
+    if (order.status not in ('pending', 'confirmed') or order.transporter_id
+            or order.payment_status == 'confirmed' or has_proof):
+        flash(tx('ይህ ትዕዛዝ ከዚህ በኋላ በድረ ገጹ መሰረዝ አይችልም። እባክዎ ያነጋግሩን።',
+                 'This order can no longer be cancelled online. Please contact us.'), 'error')
+        return redirect(url_for('order_success', order_number=order_number))
+    err = change_order_status(order, 'cancelled', actor='customer', note='cancelled by customer')
+    if err:
+        db.session.rollback()
+        flash(err, 'error')
+    else:
+        order.payment_note = tx('በደንበኛው ተሰርዟል', 'Cancelled by customer')
+        db.session.commit()
+        flash(tx('ትዕዛዝዎ ተሰርዟል።', 'Your order was cancelled.'), 'success')
+    return redirect(url_for('order_success', order_number=order_number))
+
+
 @app.route('/transporter/login', methods=['GET', 'POST'])
 def transporter_login():
     if get_current_transporter():
@@ -2337,6 +2745,9 @@ def transporter_dashboard():
     t = get_current_transporter()
     if not t:
         return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        flash(tx('እባክዎ መጀመሪያ ጊዜያዊ የይለፍ ቃልዎን ይቀይሩ።', 'Please change your temporary password first.'), 'error')
+        return redirect(url_for('transporter_change_password'))
     show = (request.args.get('show') or 'active').strip()
     q = Order.query.filter_by(transporter_id=t.id)
     if show == 'done':
@@ -2353,11 +2764,16 @@ def transporter_order(oid):
     t = get_current_transporter()
     if not t:
         return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        flash(tx('እባክዎ መጀመሪያ ጊዜያዊ የይለፍ ቃልዎን ይቀይሩ።', 'Please change your temporary password first.'), 'error')
+        return redirect(url_for('transporter_change_password'))
     order = db.get_or_404(Order, oid)
     if order.transporter_id != t.id:
         flash(_('Not assigned to you'), 'error')
         return redirect(url_for('transporter_dashboard'))
-    return render_template('transporter/order_detail.html', order=order, transporter=t)
+    return render_template('transporter/order_detail.html', order=order, transporter=t,
+                           cod_blocked=bool(cod_mismatch(order) and not order.cod_approved),
+                           issue_reasons=ISSUE_REASONS)
 
 
 @app.route('/transporter/order/<int:oid>/status', methods=['POST'])
@@ -2365,6 +2781,9 @@ def transporter_order_status(oid):
     t = get_current_transporter()
     if not t:
         return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        flash(tx('እባክዎ መጀመሪያ ጊዜያዊ የይለፍ ቃልዎን ይቀይሩ።', 'Please change your temporary password first.'), 'error')
+        return redirect(url_for('transporter_change_password'))
     order = db.get_or_404(Order, oid)
     if order.transporter_id != t.id:
         abort(403)
@@ -2378,6 +2797,22 @@ def transporter_order_status(oid):
     if new_status == 'delivered' and order.total_amount > PREPAY_MAX and not order.delivery_receipt_path:
         flash(_('Upload COD receipt before marking delivered'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
+    if new_status == 'delivered' and cod_mismatch(order) and not order.cod_approved:
+        flash(tx('የተሰበሰበው መጠን ከትዕዛዙ ጋር አይመሳሰልም። Admin እስኪያጸድቀው ይጠብቁ።',
+                 'The collected amount differs from the order total. Wait for the admin to approve it.'), 'error')
+        return redirect(url_for('transporter_order', oid=oid))
+    if new_status == 'delivered' and order.delivery_code:
+        entered = (request.form.get('delivery_code') or '').strip()
+        fail_key = f'codefail:{order.id}'
+        if rate_count(fail_key, 900) >= 5:
+            flash(tx('ብዙ ስህተት ሞክረዋል። ከ15 ደቂቃ በኋላ ይሞክሩ ወይም Admin ያነጋግሩ።',
+                     'Too many wrong codes. Try again in 15 minutes or contact the admin.'), 'error')
+            return redirect(url_for('transporter_order', oid=oid))
+        if not entered or not hmac.compare_digest(entered.encode('utf-8'), order.delivery_code.encode('utf-8')):
+            rate_hit(fail_key)
+            flash(tx('የማድረሻ ኮዱ ትክክል አይደለም። ደንበኛውን ኮዱን ይጠይቁ።',
+                     'Wrong delivery code. Ask the customer for the code they received.'), 'error')
+            return redirect(url_for('transporter_order', oid=oid))
     actor = f'transporter:{(t.phone or t.name or str(t.id))}'
     err = change_order_status(order, new_status, actor=actor)
     if err:
@@ -2387,6 +2822,71 @@ def transporter_order_status(oid):
     flash(_('Status updated'), 'success')
     return redirect(url_for('transporter_order', oid=oid))
 
+
+
+ISSUE_REASONS = {
+    'unreachable': ('ደንበኛው ስልክ አያነሳም', 'Customer not reachable'),
+    'wrong_address': ('አድራሻው ስህተት ነው / አልተገኘም', 'Wrong or missing address'),
+    'refused': ('ደንበኛው አልተቀበለም', 'Customer refused the order'),
+    'vehicle': ('የተሽከርካሪ/የመንገድ ችግር', 'Vehicle or road problem'),
+    'other': ('ሌላ ችግር', 'Other problem'),
+}
+
+
+@app.route('/transporter/order/<int:oid>/decline', methods=['POST'])
+def transporter_decline(oid):
+    """Transporter gives an assigned (not yet dispatched) order back to the admin."""
+    t = get_current_transporter()
+    if not t:
+        return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        return redirect(url_for('transporter_change_password'))
+    order = db.get_or_404(Order, oid)
+    if order.transporter_id != t.id:
+        abort(403)
+    if order.status not in ('pending', 'confirmed', 'preparing'):
+        flash(tx('ትዕዛዙ ከተላከ በኋላ መመለስ አይቻልም። "ችግር ሪፖርት አድርግ" ይጠቀሙ።',
+                 'You cannot hand the order back once it is on the way. Use "Report a problem".'), 'error')
+        return redirect(url_for('transporter_order', oid=oid))
+    reason = ' '.join((request.form.get('reason') or '').split())[:150]
+    if not reason:
+        flash(tx('ምክንያት ይጻፉ።', 'Please write a reason.'), 'error')
+        return redirect(url_for('transporter_order', oid=oid))
+    actor = f'transporter:{(t.phone or t.name or str(t.id))}'
+    order.transporter_id = None
+    order.assigned_at = None
+    order.delivery_issue = f'Declined by {t.name or t.phone}: {reason}'[:255]
+    order.delivery_issue_at = utcnow()
+    log_order_change(order, 'transporter', t.phone or '', 'unassigned', actor=actor, note=reason)
+    db.session.commit()
+    flash(tx('ትዕዛዙ ለ Admin ተመልሷል።', 'The order was handed back to the admin.'), 'success')
+    return redirect(url_for('transporter_dashboard'))
+
+
+@app.route('/transporter/order/<int:oid>/issue', methods=['POST'])
+def transporter_report_issue(oid):
+    """Transporter reports a delivery problem on a dispatched order (customer unreachable, ...)."""
+    t = get_current_transporter()
+    if not t:
+        return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        return redirect(url_for('transporter_change_password'))
+    order = db.get_or_404(Order, oid)
+    if order.transporter_id != t.id:
+        abort(403)
+    if order.status in ('cancelled', 'delivered'):
+        flash(_('This order is already closed'), 'error')
+        return redirect(url_for('transporter_order', oid=oid))
+    key = (request.form.get('reason') or 'other').strip()
+    am_label, en_label = ISSUE_REASONS.get(key, ISSUE_REASONS['other'])
+    note = ' '.join((request.form.get('note') or '').split())[:120]
+    text = f'{en_label} / {am_label}' + (f' - {note}' if note else '')
+    order.delivery_issue = text[:255]
+    order.delivery_issue_at = utcnow()
+    log_order_change(order, 'delivery_issue', '', key, actor=f'transporter:{(t.phone or t.name or str(t.id))}', note=note or en_label)
+    db.session.commit()
+    flash(tx('ችግሩ ለ Admin ተላልፏል።', 'The problem was reported to the admin.'), 'success')
+    return redirect(url_for('transporter_order', oid=oid))
 
 
 @app.route('/transporter/password', methods=['GET', 'POST'])
@@ -2401,12 +2901,17 @@ def transporter_change_password():
         if not t.check_password(current):
             flash(_('Current password is incorrect'), 'error')
             return redirect(url_for('transporter_change_password'))
-        if len(new_pw) < 6:
-            flash(_('Password must be at least 6 characters'), 'error')
+        ok_pw, msg_pw = validate_customer_password(new_pw)
+        if not ok_pw:
+            flash(msg_pw, 'error')
             return redirect(url_for('transporter_change_password'))
         if new_pw != new_pw2:
             flash(_('Passwords do not match'), 'error')
             return redirect(url_for('transporter_change_password'))
+        if new_pw == current:
+            flash(tx('አዲሱ የይለፍ ቃል ከአሁኑ የተለየ መሆን አለበት።', 'The new password must be different from the current one.'), 'error')
+            return redirect(url_for('transporter_change_password'))
+        t.must_change_password = False
         t.set_password(new_pw)
         db.session.commit()
         flash(_('Password changed'), 'success')
@@ -2420,6 +2925,9 @@ def transporter_delivery_receipt(oid):
     t = get_current_transporter()
     if not t:
         return redirect(url_for('transporter_login'))
+    if t.must_change_password:
+        flash(tx('እባክዎ መጀመሪያ ጊዜያዊ የይለፍ ቃልዎን ይቀይሩ።', 'Please change your temporary password first.'), 'error')
+        return redirect(url_for('transporter_change_password'))
     order = db.get_or_404(Order, oid)
     if order.transporter_id != t.id:
         abort(403)
@@ -2468,6 +2976,8 @@ def transporter_delivery_receipt(oid):
         pass
     db.session.commit()
     if note_extra:
+        order.cod_approved = False
+        db.session.commit()
         flash(_('Receipt sent. Amount differs from total — admin will review. Then mark delivered.'), 'success')
     else:
         flash(_('Receipt sent to admin ✓ You can now mark delivered.'), 'success')
@@ -2497,7 +3007,7 @@ def admin_login():
             flash(_('Too many failed attempts. Please try again in 15 minutes.'), 'error')
             return render_template('admin/login.html'), 429
         admin = Admin.query.filter_by(username=username).first()
-        if admin and admin.check_password(password):
+        if admin and admin.is_active is not False and admin.check_password(password):
             login_succeeded('admin', username)
             nxt = request.args.get('next') or request.form.get('next')
             start_fresh_session()
@@ -2535,7 +3045,52 @@ def admin_dashboard():
         Order.status.in_(['pending', 'confirmed', 'preparing', 'out_for_delivery'])
     ).count()
     recent_orders = Order.query.order_by(Order.created_at.desc()).limit(10).all()
+    storage_warning = (app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite')
+                       and bool(os.environ.get('RENDER') or os.environ.get('DYNO')))
+    # ---- sales / attention figures ----
+    now = utcnow()
+    day_start = (now + timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=3)
+
+    def _revenue(since):
+        return float(db.session.query(func.coalesce(func.sum(Order.total_amount), 0))
+                     .filter(Order.status == 'delivered', Order.updated_at >= since).scalar() or 0)
+
+    stats = {
+        'orders_today': Order.query.filter(Order.created_at >= day_start).count(),
+        'revenue_today': _revenue(day_start),
+        'revenue_7d': _revenue(now - timedelta(days=7)),
+        'revenue_30d': _revenue(now - timedelta(days=30)),
+        'delivered_30d': Order.query.filter(Order.status == 'delivered',
+                                            Order.updated_at >= now - timedelta(days=30)).count(),
+        'issues': Order.query.filter(and_(Order.delivery_issue.isnot(None), Order.delivery_issue != ''),
+                                     Order.status.notin_(['delivered', 'cancelled'])).count(),
+        'refunds_due': Order.query.filter(Order.refund_status == 'due').count(),
+        'cod_review': Order.query.filter(Order.status == 'out_for_delivery',
+                                         Order.delivery_receipt_path.isnot(None),
+                                         Order.delivery_receipt_path != '',
+                                         Order.cod_approved == False).count(),
+        'payments_to_check': Order.query.filter(Order.payment_required == True,
+                                                Order.payment_status == 'pending',
+                                                Order.status.notin_(['delivered', 'cancelled'])).count(),
+        'awaiting_quote': Order.query.filter(Order.payment_status == 'awaiting_quote',
+                                             Order.status == 'pending').count(),
+    }
+    low_threshold = form_env_int('LOW_STOCK_THRESHOLD', 10, 0, 100000)
+    low_stock = (db.session.query(ProductVariant, Product)
+                 .join(Product, ProductVariant.product_id == Product.id)
+                 .filter(Product.is_active == True, ProductVariant.is_available == True,
+                         ProductVariant.stock <= low_threshold)
+                 .order_by(ProductVariant.stock).limit(10).all())
+    top_products = (db.session.query(OrderItem.product_name, func.sum(OrderItem.quantity),
+                                     func.sum(OrderItem.subtotal))
+                    .join(Order, OrderItem.order_id == Order.id)
+                    .filter(Order.status != 'cancelled', Order.created_at >= now - timedelta(days=30))
+                    .group_by(OrderItem.product_name)
+                    .order_by(func.sum(OrderItem.subtotal).desc()).limit(5).all())
     return render_template('admin/dashboard.html',
+                           storage_warning=storage_warning,
+                           stats=stats, low_stock=low_stock, top_products=top_products,
+                           low_threshold=low_threshold,
                            total_orders=total_orders,
                            pending_orders=pending_orders,
                            total_products=total_products,
@@ -2543,6 +3098,99 @@ def admin_dashboard():
                            total_transporters=total_transporters,
                            unassigned_orders=unassigned_orders,
                            recent_orders=recent_orders)
+
+
+@app.route('/admin/admins', methods=['GET', 'POST'])
+@admin_required
+def admin_admins():
+    """Add / disable / remove staff admin accounts and reset their passwords."""
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if action == 'add':
+            username = (request.form.get('username') or '').strip()[:80]
+            pw = request.form.get('password') or ''
+            if len(username) < 3:
+                flash(tx('የተጠቃሚ ስም ቢያንስ 3 ቁምፊ መሆን አለበት።', 'Username must be at least 3 characters.'), 'error')
+            elif Admin.query.filter(func.lower(Admin.username) == username.lower()).first():
+                flash(_('Username already taken'), 'error')
+            elif len(pw) < 8 or pw.lower() in COMMON_PASSWORDS:
+                flash(_('New password must be at least 8 characters'), 'error')
+            else:
+                a = Admin(username=username, is_active=True)
+                a.set_password(pw)
+                db.session.add(a)
+                audit('admin_add', username)
+                db.session.commit()
+                flash(tx('አዲስ admin ተፈጥሯል።', 'Admin account created.'), 'success')
+            return redirect(url_for('admin_admins'))
+        target = db.session.get(Admin, safe_int(request.form.get('id'), 0))
+        if not target:
+            flash(tx('አልተገኘም።', 'Not found.'), 'error')
+            return redirect(url_for('admin_admins'))
+        active_count = Admin.query.filter(or_(Admin.is_active.is_(None), Admin.is_active == True)).count()
+        if action == 'toggle':
+            if target.id == current_user.id:
+                flash(tx('የራስዎን አካውንት ማገድ አይችሉም።', 'You cannot disable your own account.'), 'error')
+            elif target.is_active is not False and active_count <= 1:
+                flash(tx('የመጨረሻውን admin ማገድ አይቻልም።', 'You cannot disable the last active admin.'), 'error')
+            else:
+                target.is_active = not (target.is_active is not False)
+                audit('admin_toggle', f'{target.username} active={target.is_active}')
+                db.session.commit()
+                flash(tx('ተስተካክሏል።', 'Updated.'), 'success')
+        elif action == 'reset_password':
+            pw = request.form.get('password') or ''
+            if len(pw) < 8 or pw.lower() in COMMON_PASSWORDS:
+                flash(_('New password must be at least 8 characters'), 'error')
+            else:
+                target.set_password(pw)
+                audit('admin_password_reset', target.username)
+                db.session.commit()
+                flash(tx('የይለፍ ቃል ተቀይሯል።', 'Password changed.'), 'success')
+        elif action == 'delete':
+            if target.id == current_user.id:
+                flash(tx('የራስዎን አካውንት መሰረዝ አይችሉም።', 'You cannot delete your own account.'), 'error')
+            elif target.is_active is not False and active_count <= 1:
+                flash(tx('የመጨረሻውን admin መሰረዝ አይቻልም።', 'You cannot delete the last active admin.'), 'error')
+            else:
+                audit('admin_delete', target.username)
+                db.session.delete(target)
+                db.session.commit()
+                flash(tx('ተሰርዟል።', 'Deleted.'), 'success')
+        return redirect(url_for('admin_admins'))
+    admins = Admin.query.order_by(Admin.id).all()
+    return render_template('admin/admins.html', admins=admins)
+
+
+@app.route('/admin/audit')
+@admin_required
+def admin_audit():
+    action = (request.args.get('action') or '').strip()[:60]
+    query = AuditLog.query.order_by(AuditLog.created_at.desc())
+    if action:
+        query = query.filter(AuditLog.action == action)
+    logs = query.limit(300).all()
+    actions = [r[0] for r in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all()]
+    return render_template('admin/audit.html', logs=logs, actions=actions, current_action=action)
+
+
+@app.cli.command('reset-admin')
+def cli_reset_admin():
+    """Recover access: `flask --app app reset-admin` creates/updates an admin with a new random password."""
+    username = (os.environ.get('ADMIN_USERNAME') or 'admin').strip() or 'admin'
+    pw = secrets.token_urlsafe(10)
+    a = Admin.query.filter(func.lower(Admin.username) == username.lower()).first()
+    if a:
+        a.set_password(pw)
+        a.is_active = True
+    else:
+        a = Admin(username=username, is_active=True)
+        a.set_password(pw)
+        db.session.add(a)
+    db.session.add(AuditLog(actor='cli', action='admin_reset', detail=username))
+    db.session.commit()
+    print(f'Admin "{username}" is ready. New password: {pw}')
+    print('Log in and change it in Admin > Settings.')
 
 
 @app.route('/admin/api/live')
@@ -2751,6 +3399,7 @@ def admin_product_add():
             )
             db.session.add(variant)
 
+        audit('product_add', f'{product.name_en} ({unit})')
         db.session.commit()
         flash(_('Product added successfully'), 'success')
         return redirect(url_for('admin_products'))
@@ -2820,15 +3469,21 @@ def admin_product_edit(pid):
             if variant is None:
                 variant = ProductVariant(product_id=product.id, weight_kg=w)
                 db.session.add(variant)
+            if variant.id is not None and (float(variant.price or 0) != price or variant.bulk_price != bulk):
+                audit('price_change', f'{product.name_en} {w}{unit}: {variant.price} -> {price} (bulk {variant.bulk_price} -> {bulk})')
             variant.price = price
             variant.bulk_price = bulk
             variant.bulk_min_qty = form_int(f'bulk_min_{w}', 10, 1, 100000)
             if request.form.get(f'update_stock_{w}') and f'stock_{w}' in request.form:
-                variant.stock = form_int(f'stock_{w}', 0, 0, 10000000)
+                new_stock = form_int(f'stock_{w}', 0, 0, 10000000)
+                if variant.id is not None and variant.stock != new_stock:
+                    audit('stock_change', f'{product.name_en} {w}{unit}: {variant.stock} -> {new_stock}')
+                variant.stock = new_stock
             elif variant.id is None:
                 variant.stock = form_int(f'stock_{w}', 100, 0, 10000000)
             variant.is_available = is_avail
 
+        audit('product_edit', f'#{product.id} {product.name_en} active={product.is_active}')
         db.session.commit()
         flash(_('Product updated successfully'), 'success')
         return redirect(url_for('admin_products'))
@@ -2856,6 +3511,7 @@ def admin_product_edit(pid):
 def admin_product_delete(pid):
     product = db.get_or_404(Product, pid)
     product.is_active = False
+    audit('product_hide', f'#{product.id} {product.name_en}')
     db.session.commit()
     flash(_('Product hidden (soft-deleted)'), 'success')
     return redirect(url_for('admin_products'))
@@ -2887,8 +3543,12 @@ def admin_orders():
             if items <= 0:
                 items = max(0.0, float(order.total_amount or 0) - float(order.delivery_fee or 0))
                 order.items_subtotal = items
-            order.delivery_fee = fee
-            order.total_amount = items + fee
+            if abs(fee - float(order.delivery_fee or 0)) > 0.005:
+                if fee_locked(order):
+                    flash(f'{order.order_number}: ' + tx('ክፍያ ከተፈጸመ/ከተረጋገጠ ወይም ትዕዛዙ ከተላከ በኋላ የማድረሻ ክፍያ መቀየር አይቻልም። መጀመሪያ ክፍያውን ውድቅ ያድርጉ ወይም ትዕዛዙን ይሰርዙ።', 'The delivery fee cannot be changed after payment was sent/confirmed or the order was dispatched. Reject the payment or cancel the order first.'), 'error')
+                else:
+                    order.delivery_fee = fee
+                    order.total_amount = items + fee
             # delivery time for customer
             eta = (request.form.get(f'eta_{oid}') or '').strip()[:80]
             if eta:
@@ -2909,18 +3569,27 @@ def admin_orders():
                                 n=order.order_number), 'error')
                     elif order.payment_required and order.payment_status not in ('confirmed', 'not_required'):
                         flash(_('%(n)s: confirm payment before assign', n=order.order_number), 'error')
+                    elif order.payment_status == 'awaiting_customer':
+                        flash(f'{order.order_number}: ' + _('Wait for customer to accept delivery fee (COD)'), 'error')
                     else:
+                        changed_tr = order.transporter_id != tr.id
                         order.transporter_id = tr.id
                         order.assigned_at = utcnow()
                         if order.status == 'pending':
                             change_order_status(order, 'confirmed', actor='admin', note='assigned transporter')
+                        if changed_tr:
+                            order.delivery_issue = ''
+                            order.delivery_issue_at = None
+                            order_sms(order, 'assigned', to='transporter')
             else:
                 # empty = unassign only if field was present
                 if f'transporter_{oid}' in request.form:
                     order.transporter_id = None
                     order.assigned_at = None
             # optional: request payment for this order
-            if request.form.get(f'request_pay_{oid}'):
+            if request.form.get(f'request_pay_{oid}') and fee_locked(order):
+                flash(f'{order.order_number}: ' + tx('ክፍያ ከተፈጸመ/ከተረጋገጠ ወይም ትዕዛዙ ከተላከ በኋላ የማድረሻ ክፍያ መቀየር አይቻልም። መጀመሪያ ክፍያውን ውድቅ ያድርጉ ወይም ትዕዛዙን ይሰርዙ።', 'The delivery fee cannot be changed after payment was sent/confirmed or the order was dispatched. Reject the payment or cancel the order first.'), 'error')
+            elif request.form.get(f'request_pay_{oid}'):
                 grand = float(order.total_amount or 0)
                 if grand < PREPAY_MIN:
                     order.payment_required = False
@@ -2935,6 +3604,7 @@ def admin_orders():
                         'Please pay %(t)s ETB (items + delivery). Upload receipt or transaction ID.',
                         t=f'{grand:.0f}'
                     )
+                    order_sms(order, 'pay_request')
                 else:
                     order.payment_required = False
                     order.payment_status = 'awaiting_customer'
@@ -2942,14 +3612,45 @@ def admin_orders():
                         'Delivery fee set. Total %(t)s ETB — pay on delivery. Please confirm.',
                         t=f'{grand:.0f}'
                     )
+                    order_sms(order, 'cod_notice')
             updated += 1
         db.session.commit()
         flash(_('Saved %(n)s order(s)', n=updated), 'success')
         return redirect(url_for('admin_orders', status=status or None, q=q or None))
 
+    flag = (request.args.get('flag') or '').strip()
+    page = max(1, safe_int(request.args.get('page'), 1))
+    per_page = 50
+    query = _orders_query(status, q, flag)
+    total = query.count()
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages)
+    orders = query.offset((page - 1) * per_page).limit(per_page).all()
+    transporters = Transporter.query.filter_by(is_active=True).order_by(Transporter.name).all()
+    return render_template(
+        'admin/orders.html',
+        orders=orders,
+        transporters=transporters,
+        current_status=status,
+        search_q=q,
+        current_flag=flag,
+        page=page, pages=pages, total=total,
+        status_choices=['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
+    )
+
+
+def _orders_query(status='', q='', flag=''):
     query = Order.query.order_by(Order.created_at.desc())
     if status:
         query = query.filter_by(status=status)
+    if flag == 'issue':
+        query = query.filter(and_(Order.delivery_issue.isnot(None), Order.delivery_issue != ''),
+                             Order.status.notin_(['delivered', 'cancelled']))
+    elif flag == 'refund':
+        query = query.filter(Order.refund_status == 'due')
+    elif flag == 'payment':
+        query = query.filter(Order.payment_required == True, Order.payment_status == 'pending',
+                             Order.status.notin_(['delivered', 'cancelled']))
     if q:
         like = f'%{q}%'
         query = query.filter(or_(
@@ -2958,16 +3659,40 @@ def admin_orders():
             Order.customer_name.ilike(like),
             Order.transaction_id.ilike(like),
         ))
-    orders = query.limit(300).all()
-    transporters = Transporter.query.filter_by(is_active=True).order_by(Transporter.name).all()
-    return render_template(
-        'admin/orders.html',
-        orders=orders,
-        transporters=transporters,
-        current_status=status,
-        search_q=q,
-        status_choices=['pending', 'confirmed', 'preparing', 'out_for_delivery', 'delivered', 'cancelled'],
-    )
+    return query
+
+
+def _csv_safe(v):
+    """Stop spreadsheet formula injection (cells starting with = + - @)."""
+    v = '' if v is None else str(v)
+    return ("'" + v) if v[:1] in ('=', '+', '-', '@', '\t', '\r') else v
+
+
+@app.route('/admin/orders/export.csv')
+@admin_required
+def admin_orders_export():
+    status = request.args.get('status', '').strip()
+    q = (request.args.get('q') or '').strip()[:80]
+    flag = (request.args.get('flag') or '').strip()
+    rows = _orders_query(status, q, flag).limit(5000).all()
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(['order_number', 'created_at', 'status', 'payment_status', 'customer', 'phone', 'address',
+                'items', 'items_subtotal', 'delivery_fee', 'total', 'transaction_id', 'refund_status',
+                'cod_collected', 'transporter_id', 'delivery_issue'])
+    for o in rows:
+        items = '; '.join(f'{i.product_name} {i.weight_kg}{i.unit or ""} x{i.quantity}' for i in o.items)
+        w.writerow([_csv_safe(x) for x in (
+            o.order_number, to_addis(o.created_at).strftime('%Y-%m-%d %H:%M') if o.created_at else '',
+            o.status, o.payment_status, o.customer_name, o.phone, o.address_text, items,
+            f'{o.items_subtotal or 0:.2f}', f'{o.delivery_fee or 0:.2f}', f'{o.total_amount or 0:.2f}',
+            o.transaction_id, o.refund_status, o.cod_amount_collected, o.transporter_id, o.delivery_issue)])
+    audit('export_orders', f'{len(rows)} rows status={status} q={q} flag={flag}')
+    db.session.commit()
+    resp = Response('\ufeff' + buf.getvalue(), mimetype='text/csv; charset=utf-8')
+    resp.headers['Content-Disposition'] = f'attachment; filename=orders_{utcnow().strftime("%Y%m%d_%H%M")}.csv'
+    resp.headers['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 def _parse_hours(raw):
@@ -2995,6 +3720,9 @@ def admin_order_detail(oid):
             if order.status in ('cancelled', 'delivered'):
                 flash(_('Cannot change delivery fee on a closed order'), 'error')
                 return back
+            if fee_locked(order):
+                flash(tx('ክፍያ ከተፈጸመ/ከተረጋገጠ ወይም ትዕዛዙ ከተላከ በኋላ የማድረሻ ክፍያ መቀየር አይቻልም። መጀመሪያ ክፍያውን ውድቅ ያድርጉ ወይም ትዕዛዙን ይሰርዙ።', 'The delivery fee cannot be changed after payment was sent/confirmed or the order was dispatched. Reject the payment or cancel the order first.'), 'error')
+                return back
             fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
             items = float(order.items_subtotal or 0)
             if items <= 0:
@@ -3015,6 +3743,9 @@ def admin_order_detail(oid):
                 flash(_('Order is closed'), 'error')
                 return back
             fee = form_float('delivery_fee', float(order.delivery_fee or 0), 0.0, 1e7)
+            if fee_locked(order):
+                flash(tx('ክፍያ ከተፈጸመ/ከተረጋገጠ ወይም ትዕዛዙ ከተላከ በኋላ የማድረሻ ክፍያ መቀየር አይቻልም። መጀመሪያ ክፍያውን ውድቅ ያድርጉ ወይም ትዕዛዙን ይሰርዙ።', 'The delivery fee cannot be changed after payment was sent/confirmed or the order was dispatched. Reject the payment or cancel the order first.'), 'error')
+                return back
             items = float(order.items_subtotal or 0)
             if items <= 0:
                 items = max(0.0, float(order.total_amount or 0) - float(order.delivery_fee or 0))
@@ -3036,6 +3767,7 @@ def admin_order_detail(oid):
                     'Please pay %(t)s ETB by bank (items %(i)s + delivery %(d)s). Upload receipt or transaction ID.',
                     t=f'{grand:.0f}', i=f'{items:.0f}', d=f'{fee:.0f}'
                 )
+                order_sms(order, 'pay_request')
             else:
                 # Over 100,000 — COD: ask customer to accept delivery fee; pay on delivery
                 order.payment_required = False
@@ -3044,6 +3776,7 @@ def admin_order_detail(oid):
                     'Delivery fee is %(d)s ETB. Grand total %(t)s ETB. No bank transfer needed — pay when items are delivered. Please confirm on your order page.',
                     d=f'{fee:.0f}', t=f'{grand:.0f}'
                 )
+                order_sms(order, 'cod_notice')
             log_order_change(order, 'payment_status', None, order.payment_status, actor='admin', note='request payment / customer notice')
             db.session.commit()
             flash(_('Customer payment request sent'), 'success')
@@ -3070,11 +3803,14 @@ def admin_order_detail(oid):
                     return back
                 order.transporter_id = tr.id
                 order.assigned_at = utcnow()
+                order.delivery_issue = ''
+                order.delivery_issue_at = None
                 if order.status == 'pending':
                     err = change_order_status(order, 'confirmed', actor='admin', note='assigned transporter')
                     if err:
                         flash(err, 'error')
                         return back
+                order_sms(order, 'assigned', to='transporter')
             else:
                 if order.status == 'delivered':
                     flash(_('This order is already closed'), 'error')
@@ -3094,6 +3830,10 @@ def admin_order_detail(oid):
                 if order.status in ('cancelled', 'delivered'):
                     flash(_('Cannot change payment status on a closed order'), 'error')
                     return back
+                if pay == 'confirmed' and order.payment_required and not (order.receipt_path or order.transaction_id):
+                    flash(tx('ደንበኛው ደረሰኝ ወይም transaction ID እስካልላከ ድረስ ክፍያን ማረጋገጥ አይቻልም።',
+                             'Cannot confirm payment: the customer has not sent a receipt or transaction ID yet.'), 'error')
+                    return back
                 old_pay = order.payment_status
                 order.payment_status = pay
                 if note:
@@ -3111,11 +3851,58 @@ def admin_order_detail(oid):
                     order.transaction_id = ''
                     # Keep old receipt_path for audit; customer resubmit will replace it
                 try:
-                    log_order_change(order, 'payment_status', old_pay, pay, actor='admin', note=note or '')
+                    log_order_change(order, 'payment_status', old_pay, pay, actor=admin_actor(), note=note or '')
                 except Exception:
                     pass
+                if pay == 'confirmed' and old_pay != 'confirmed':
+                    order_sms(order, 'payment_ok')
+                elif pay == 'rejected' and old_pay != 'rejected':
+                    order_sms(order, 'payment_rejected')
                 db.session.commit()
                 flash(_('Confirmed') if pay == 'confirmed' else _('Payment status updated'), 'success')
+            return back
+        if action == 'refund_done':
+            if order.refund_status != 'due':
+                flash(tx('ለዚህ ትዕዛዝ ተመላሽ ገንዘብ አይጠበቅም።', 'No refund is due on this order.'), 'error')
+                return back
+            order.refund_status = 'refunded'
+            order.refunded_at = utcnow()
+            order.refund_note = (request.form.get('refund_note') or '').strip()[:255]
+            log_order_change(order, 'refund', 'due', 'refunded', actor=admin_actor(), note=order.refund_note)
+            audit('refund', f'{order.order_number}: {order.total_amount:.0f} ETB {order.refund_note}')
+            db.session.commit()
+            flash(tx('ተመላሽ ገንዘብ ተመዝግቧል።', 'Refund recorded.'), 'success')
+            return back
+        if action == 'cod_approve':
+            if not order.delivery_receipt_path:
+                flash(tx('ደረሰኝ አልተጫነም።', 'No COD receipt uploaded.'), 'error')
+                return back
+            order.cod_approved = True
+            log_order_change(order, 'cod_receipt', 'review', 'approved', actor=admin_actor(),
+                             note=f'collected={order.cod_amount_collected}')
+            audit('cod_approve', f'{order.order_number}: collected {order.cod_amount_collected} of {order.total_amount:.0f}')
+            db.session.commit()
+            flash(tx('የ COD ደረሰኝ ጸድቋል፤ አጓጓዡ ማድረሱን ማመልከት ይችላል።', 'COD receipt approved. The transporter can now mark it delivered.'), 'success')
+            return back
+        if action == 'cod_reset':
+            if order.status == 'delivered':
+                flash(_('This order is already closed'), 'error')
+                return back
+            delete_stored_file(order.delivery_receipt_path)
+            order.delivery_receipt_path = ''
+            order.cod_amount_collected = None
+            order.delivery_receipt_note = ''
+            order.delivery_receipt_at = None
+            order.cod_approved = False
+            log_order_change(order, 'cod_receipt', 'uploaded', 'reset', actor=admin_actor(), note='admin cleared COD receipt')
+            db.session.commit()
+            flash(tx('የ COD ደረሰኝ ተጠርጓል፤ አጓጓዡ እንደገና መጫን ይችላል።', 'COD receipt cleared. The transporter can upload it again.'), 'success')
+            return back
+        if action == 'clear_issue':
+            order.delivery_issue = ''
+            order.delivery_issue_at = None
+            db.session.commit()
+            flash(tx('ችግሩ ተዘግቷል።', 'Issue cleared.'), 'success')
             return back
         if action == 'eta':
             dmin_i, ok1 = _parse_hours(request.form.get('delivery_min_hours'))
@@ -3171,6 +3958,7 @@ def admin_banks():
                 is_active=True
             )
             db.session.add(b)
+            audit('bank_add', f'{bank_name} / {account_name} / {account_number}')
             db.session.commit()
             flash(_('Bank account added'), 'success')
         elif action in ('edit', 'delete'):
@@ -3179,6 +3967,7 @@ def admin_banks():
                 if not bank_name or not account_number:
                     flash(_('Bank name and account number are required'), 'error')
                     return redirect(url_for('admin_banks'))
+                audit('bank_edit', f'#{b.id}: {b.bank_name}/{b.account_number} -> {bank_name}/{account_number} active={bool(request.form.get("is_active"))}')
                 b.bank_name = bank_name
                 b.account_name = account_name
                 b.account_number = account_number
@@ -3225,12 +4014,14 @@ def admin_transporters():
                 name=request.form.get('name', '').strip()[:120],
                 phone=phone,
                 vehicle_info=request.form.get('vehicle_info', '').strip()[:120],
-                is_active=True
+                is_active=True,
+                must_change_password=True,
             )
             typed_pw = request.form.get('password', '').strip()
             pw = typed_pw or secrets.token_urlsafe(8)
             t.set_password(pw)
             db.session.add(t)
+            audit('transporter_add', f'{t.name} {t.phone}')
             db.session.commit()
             if typed_pw:
                 flash(_('Transporter created'), 'success')
@@ -3258,6 +4049,8 @@ def admin_transporters():
                         flash(_('Password must be at least 6 characters'), 'error')
                         return redirect(url_for('admin_transporters'))
                     t.set_password(new_pw)
+                    t.must_change_password = True
+                audit('transporter_edit', f'{t.name} {t.phone} active={t.is_active}' + (' password reset' if new_pw else ''))
                 db.session.commit()
                 flash(_('Transporter updated'), 'success')
             else:
@@ -3281,6 +4074,7 @@ def admin_vat_delivery():
     """Dedicated page: site delivery fee + default VAT % for new products."""
     settings = get_settings()
     if request.method == 'POST':
+        audit('vat_delivery', f'delivery_fee {settings.delivery_fee} -> {request.form.get("delivery_fee")}, vat {settings.default_vat_percent} -> {request.form.get("default_vat_percent")}')
         settings.delivery_fee = form_float('delivery_fee', 0.0, 0.0, 1e7)
         settings.default_vat_percent = form_float('default_vat_percent', 15.0, 0.0, 100.0)
         db.session.commit()
@@ -3317,6 +4111,7 @@ def admin_settings():
                     flash(_('New password must be at least 8 characters'), 'error')
                     return redirect(url_for('admin_settings'))
                 current_user.set_password(new_pw)
+                audit('admin_password_change', current_user.username)
                 # Remove one-time password file after admin sets their own password
                 try:
                     note_path = os.path.join(app.instance_path, 'initial_admin_password.txt')
@@ -3383,12 +4178,14 @@ def admin_customers():
             return redirect(url_for('admin_customers'))
         if action == 'toggle_active':
             c.is_active = not c.is_active
+            audit('customer_toggle', f'{c.phone} active={c.is_active}')
             db.session.commit()
             flash(_('Customer activated') if c.is_active else _('Customer blocked'), 'success')
         elif action == 'reset_password':
             import secrets as _secrets
             temp = _secrets.token_urlsafe(8)
             c.set_password(temp)
+            audit('customer_password_reset', c.phone)
             db.session.commit()
             flash(_('Temporary password for %(phone)s: %(pw)s — share once then customer should change it.',
                     phone=c.phone, pw=temp), 'success')
@@ -3529,6 +4326,24 @@ def init_db():
         except Exception as e:
             db.session.rollback()
             print('order migrate note:', e)
+
+        try:
+            for table, col, ddl in [
+                ('admin', 'is_active', 'BOOLEAN DEFAULT TRUE'),
+                ('customer', 'phone_verified', 'BOOLEAN DEFAULT FALSE'),
+                ('transporter', 'must_change_password', 'BOOLEAN DEFAULT FALSE'),
+                ('order', 'refund_status', "VARCHAR(20) DEFAULT ''"),
+                ('order', 'refund_note', "VARCHAR(255) DEFAULT ''"),
+                ('order', 'refunded_at', ts),
+                ('order', 'delivery_code', "VARCHAR(8) DEFAULT ''"),
+                ('order', 'delivery_issue', "VARCHAR(255) DEFAULT ''"),
+                ('order', 'delivery_issue_at', ts),
+                ('order', 'cod_approved', 'BOOLEAN DEFAULT FALSE'),
+            ]:
+                _ensure_column(table, col, ddl)
+        except Exception as e:
+            db.session.rollback()
+            print('v2 migrate note:', e)
 
         try:
             _migrate_private_files()
@@ -3721,6 +4536,20 @@ def api_cart_prices():
 
 # Always init DB (works with gunicorn and python app.py)
 init_db()
+with app.app_context(), init_lock():
+    try:
+        _n = backfill_files_to_db()
+        if _n:
+            print(f'Copied {_n} existing upload(s) into the database.')
+    except Exception as _e:
+        db.session.rollback()
+        print('file backfill note:', _e)
+
+if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite') and (os.environ.get('RENDER') or os.environ.get('DYNO')):
+    import sys
+    print('WARNING: running on SQLite on a hosting platform with an ephemeral disk. '
+          'ALL DATA (orders, receipts, customers) IS LOST on redeploy. Set DATABASE_URL to PostgreSQL.',
+          file=sys.stderr)
 
 if __name__ == '__main__':
     app.run(debug=False, host=os.environ.get('HOST', '0.0.0.0'), port=int(os.environ.get('PORT', '5000')))

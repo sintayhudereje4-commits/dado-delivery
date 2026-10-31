@@ -45,9 +45,9 @@
                 <input type="password" name="password" id="password" required minlength="6" autocomplete="new-password">
                 <div id="pwRules" class="pw-rules bad">
                     {% if current_lang == 'am' %}
-                    • ቢያንስ 6 ቁምፊ<br>• 1 አቢይ ሆሄ (A-Z)<br>• 1 ቁጥር<br>• 1 ምልክት (!@#$)
+                    • ቢያንስ 6 ቁምፊ (በአማርኛም ይሆናል)<br>• በቀላሉ የሚገመት አይሁን (ለምሳሌ 123456)
                     {% else %}
-                    • At least 6 characters<br>• 1 capital letter (A-Z)<br>• 1 number<br>• 1 symbol (!@#$)
+                    • At least 6 characters (any language)<br>• Not easy to guess (e.g. not 123456)
                     {% endif %}
                 </div>
             </div>
@@ -73,23 +73,18 @@
   function check() {
     var v = pw.value || '';
     var okLen = v.length >= 6;
-    var okCap = /[A-Z]/.test(v);
-    var okNum = /[0-9]/.test(v);
-    var okSym = /[^A-Za-z0-9]/.test(v);
-    var all = okLen && okCap && okNum && okSym;
+    var uniq = {}; for (var i = 0; i < v.length; i++) uniq[v[i]] = 1;
+    var okEasy = Object.keys(uniq).length >= 3 && ['123456','1234567','12345678','123456789','111111','000000','654321','123123','password','qwerty','abcdef','abc123'].indexOf(v.toLowerCase()) < 0;
+    var all = okLen && okEasy;
     rules.className = 'pw-rules ' + (all ? 'good' : 'bad');
     {% if current_lang == 'am' %}
     rules.innerHTML =
       (okLen ? '✓' : '•') + ' ቢያንስ 6 ቁምፊ<br>' +
-      (okCap ? '✓' : '•') + ' 1 አቢይ ሆሄ (A-Z)<br>' +
-      (okNum ? '✓' : '•') + ' 1 ቁጥር<br>' +
-      (okSym ? '✓' : '•') + ' 1 ምልክት (!@#$)';
+      (okEasy ? '✓' : '•') + ' በቀላሉ የሚገመት አይሁን';
     {% else %}
     rules.innerHTML =
       (okLen ? '✓' : '•') + ' At least 6 characters<br>' +
-      (okCap ? '✓' : '•') + ' 1 capital letter (A-Z)<br>' +
-      (okNum ? '✓' : '•') + ' 1 number<br>' +
-      (okSym ? '✓' : '•') + ' 1 symbol (!@#$)';
+      (okEasy ? '✓' : '•') + ' Not easy to guess';
     {% endif %}
     if (pw2.value) {
       match.style.display = 'block';

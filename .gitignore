@@ -5,3 +5,4 @@ instance/
 static/uploads/*
 !static/uploads/.gitkeep
 .env
+backups/

@@ -16,7 +16,12 @@
         {% for s in status_choices %}
         <a href="{{ url_for('admin_orders', status=s, q=search_q) }}" class="{% if current_status == s %}active{% endif %}">{{ s.replace('_',' ')|title }}</a>
         {% endfor %}
+        <a href="{{ url_for('admin_orders', flag='payment') }}" class="{% if current_flag == 'payment' %}active{% endif %}">Payments to check</a>
+        <a href="{{ url_for('admin_orders', flag='issue') }}" class="{% if current_flag == 'issue' %}active{% endif %}">⚠ Issues</a>
+        <a href="{{ url_for('admin_orders', flag='refund') }}" class="{% if current_flag == 'refund' %}active{% endif %}">Refund due</a>
+        <a href="{{ url_for('admin_orders_export', status=current_status or None, q=search_q or None, flag=current_flag or None) }}" style="margin-left:auto;">⬇ Export CSV</a>
     </div>
+    <p style="margin:6px 0 0;color:#777;font-size:.85rem;">{{ total }} order(s) · page {{ page }} / {{ pages }}</p>
 </div>
 
 <form method="POST" id="ordersBulkForm">
@@ -30,6 +35,9 @@
             <strong style="font-size:1.1rem;">{{ o.order_number }}</strong>
             <span class="badge badge-{{ o.status }}" style="margin-left:8px;">{{ o.status }}</span>
             <span class="badge" style="margin-left:4px;background:#eceff1;color:#455a64;">{{ o.payment_status }}</span>
+            {% if o.delivery_issue and o.status not in ('delivered','cancelled') %}<span class="badge" style="margin-left:4px;background:#ffe0b2;color:#e65100;" title="{{ o.delivery_issue }}">⚠ issue</span>{% endif %}
+            {% if o.refund_status == 'due' %}<span class="badge" style="margin-left:4px;background:#ffcdd2;color:#b71c1c;">refund due</span>{% endif %}
+            {% if o.status == 'out_for_delivery' and o.delivery_receipt_path and not o.cod_approved %}<span class="badge" style="margin-left:4px;background:#e1bee7;color:#4a148c;">COD receipt</span>{% endif %}
             <small style="color:#888;margin-left:8px;">{{ o.created_at|addis }}</small>
         </div>
         <a href="{{ url_for('admin_order_detail', oid=o.id) }}" class="btn btn-sm btn-outline">Full detail</a>
@@ -110,6 +118,14 @@
 {% else %}
 <p style="padding:24px;color:#666;">No orders</p>
 {% endfor %}
+
+{% if pages > 1 %}
+<div style="display:flex;gap:8px;justify-content:center;margin:12px 0;">
+    {% if page > 1 %}<a class="btn btn-sm btn-outline" href="{{ url_for('admin_orders', status=current_status or None, q=search_q or None, flag=current_flag or None, page=page-1) }}">← Previous</a>{% endif %}
+    <span style="padding:6px 10px;">{{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a class="btn btn-sm btn-outline" href="{{ url_for('admin_orders', status=current_status or None, q=search_q or None, flag=current_flag or None, page=page+1) }}">Next →</a>{% endif %}
+</div>
+{% endif %}
 
 {% if orders %}
 <div style="position:sticky;bottom:12px;z-index:20;text-align:center;padding:12px;">

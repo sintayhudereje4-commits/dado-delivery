@@ -3,6 +3,14 @@
 
 {% block content %}
 <h1>Dashboard</h1>
+{% if storage_warning %}
+<div style="background:#ffebee;border:1px solid #c62828;color:#b71c1c;padding:12px 16px;border-radius:8px;margin-bottom:16px;">
+    <strong>⚠ ዳታ አደጋ ላይ ነው / Data at risk:</strong>
+    ድረ ገጹ SQLite በ ephemeral ዲስክ ላይ እየሰራ ነው — redeploy ሲደረግ ትዕዛዞች፣ ደንበኞችና ደረሰኞች ይጠፋሉ።
+    <code>DATABASE_URL</code> ን ወደ PostgreSQL ያዋቅሩ።
+    <br><small>The site runs on SQLite on an ephemeral disk: orders, customers and receipts are wiped on redeploy. Set <code>DATABASE_URL</code> to PostgreSQL.</small>
+</div>
+{% endif %}
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value">{{ total_orders }}</div>
@@ -27,6 +35,44 @@
     <div class="stat-card warning">
         <div class="stat-value">{{ unassigned_orders }}</div>
         <div class="stat-label">Unassigned to transporter</div>
+    </div>
+</div>
+
+<h2>Sales &amp; attention</h2>
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-value">{{ stats.orders_today }}</div><div class="stat-label">Orders today</div></div>
+    <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_today) }}</div><div class="stat-label">Delivered today (ብር)</div></div>
+    <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_7d) }}</div><div class="stat-label">Delivered last 7 days (ብር)</div></div>
+    <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_30d) }}</div><div class="stat-label">Delivered last 30 days (ብር) · {{ stats.delivered_30d }} orders</div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ stats.awaiting_quote }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', status='pending') }}" style="color:inherit;">Need delivery fee / quote</a></div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ stats.payments_to_check }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', flag='payment') }}" style="color:inherit;">Payments to check</a></div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ stats.issues }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', flag='issue') }}" style="color:inherit;">Delivery problems</a></div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ stats.refunds_due }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', flag='refund') }}" style="color:inherit;">Refunds due</a></div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ stats.cod_review }}</div><div class="stat-label">COD receipts waiting</div></div>
+</div>
+<p class="hint" style="margin:4px 0 16px;font-size:.85rem;color:#777;">Delivered amounts use the order's last update time.</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px;">
+    <div class="detail-card">
+        <h3>Low stock (≤ {{ low_threshold }})</h3>
+        {% if low_stock %}
+        <ul style="margin:0;padding-left:18px;">
+            {% for v, p in low_stock %}
+            <li><a href="{{ url_for('admin_product_edit', pid=p.id) }}">{{ p.name_en }} — {{ v.weight_kg }} {{ unit_label(p.unit or 'kg', 'en') }}</a>:
+                <strong style="color:{{ '#c62828' if v.stock <= 0 else '#e65100' }};">{{ v.stock }}</strong></li>
+            {% endfor %}
+        </ul>
+        {% else %}<p style="margin:0;color:#2e7d32;">All good ✓</p>{% endif %}
+    </div>
+    <div class="detail-card">
+        <h3>Top products (30 days)</h3>
+        {% if top_products %}
+        <ol style="margin:0;padding-left:18px;">
+            {% for name, qty, amount in top_products %}
+            <li>{{ name }} — {{ qty|int }} pcs · {{ '{:,.0f}'.format(amount or 0) }} ብር</li>
+            {% endfor %}
+        </ol>
+        {% else %}<p style="margin:0;color:#777;">No orders yet.</p>{% endif %}
     </div>
 </div>
 

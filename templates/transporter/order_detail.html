@@ -134,16 +134,57 @@
                 <button class="btn" type="submit" name="status" value="out_for_delivery">Out for delivery / በመንገድ ላይ</button>
                 <p style="font-size:.85rem;color:#555;margin-top:8px;">First mark Out for delivery, then deliver.</p>
                 {% elif order.status == 'out_for_delivery' %}
+                {% if order.delivery_code %}
+                <div style="margin-bottom:10px;">
+                    <label style="display:block;font-weight:600;margin-bottom:4px;">Customer delivery code / የደንበኛ የማድረሻ ኮድ *</label>
+                    <input type="text" name="delivery_code" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" required
+                           placeholder="____" style="width:100%;padding:12px;font-size:1.3rem;letter-spacing:6px;text-align:center;border:1px solid #ccc;border-radius:8px;">
+                    <small style="color:#666;">Ask the customer for the 4-digit code (sent by SMS / shown on their order page) when you hand over the goods.</small>
+                </div>
+                {% endif %}
                 <button class="btn btn-green" type="submit" name="status" value="delivered"
-                    {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}disabled title="Upload COD receipt first"{% endif %}>
+                    {% if (order.total_amount > prepay_max and not order.delivery_receipt_path) or cod_blocked %}disabled title="Upload COD receipt / wait for admin approval first"{% endif %}>
                     Mark delivered / ደርሷል
                 </button>
+                {% if cod_blocked %}
+                <p style="font-size:.85rem;color:#c62828;margin-top:8px;">Collected amount differs from the order total — waiting for admin approval.</p>
+                {% endif %}
                 {% if order.total_amount > prepay_max and not order.delivery_receipt_path %}
                 <p style="font-size:.85rem;color:#e65100;margin-top:8px;">Upload COD receipt below before marking delivered.</p>
                 {% endif %}
                 {% endif %}
             </form>
         </div>
+        {% if order.delivery_issue %}
+        <div class="card" style="border-left:4px solid #e65100;">
+            <p style="margin:0;"><strong>⚠ Reported:</strong> {{ order.delivery_issue }}</p>
+        </div>
+        {% endif %}
+
+        {% if order.status in ('pending', 'confirmed', 'preparing') %}
+        <div class="card">
+            <h3>Can't take this order? / ማድረስ አልችልም?</h3>
+            <form method="POST" action="{{ url_for('transporter_decline', oid=order.id) }}" onsubmit="return confirm('Hand this order back to admin?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="reason" maxlength="150" required placeholder="Reason / ምክንያት"
+                       style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;margin-bottom:8px;">
+                <button class="btn" type="submit" style="background:#757575;">Give back to admin / መልስ</button>
+            </form>
+        </div>
+        {% elif order.status == 'out_for_delivery' %}
+        <div class="card">
+            <h3>Report a problem / ችግር ሪፖርት አድርግ</h3>
+            <form method="POST" action="{{ url_for('transporter_report_issue', oid=order.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <select name="reason" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;margin-bottom:8px;">
+                    {% for k, v in issue_reasons.items() %}<option value="{{ k }}">{{ v[1] }} / {{ v[0] }}</option>{% endfor %}
+                </select>
+                <input type="text" name="note" maxlength="120" placeholder="Note (optional) / ማስታወሻ"
+                       style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;margin-bottom:8px;">
+                <button class="btn" type="submit" style="background:#e65100;">Send to admin / ለ Admin ላክ</button>
+            </form>
+        </div>
+        {% endif %}
         {% else %}
         <div class="card">
             <p style="color:#666;margin:0;">This order is closed ({{ order.status }}). Status buttons are hidden.</p>
