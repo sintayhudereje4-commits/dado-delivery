@@ -21,6 +21,7 @@ import base64
 import mimetypes
 import threading
 import csv
+from urllib.parse import urlencode
 from io import BytesIO, StringIO
 from functools import wraps
 from flask import (
@@ -53,6 +54,12 @@ except ImportError:
 # the transporter must send a receipt to the admin.
 PREPAY_MIN = 100
 PREPAY_MAX = 100000
+# Orders above PREPAY_MAX: this percentage of the total is paid by bank right away,
+# the rest is collected in cash by the transporter on delivery.
+try:
+    DEPOSIT_PERCENT = max(10, min(90, int((os.environ.get('DEPOSIT_PERCENT') or '50').strip())))
+except ValueError:
+    DEPOSIT_PERCENT = 50
 # Legacy default sizes (kg). Prefer UNIT_PRESETS by product.unit.
 WEIGHTS = [10, 15, 25, 50, 100]
 
@@ -860,11 +867,39 @@ class Order(db.Model):
     delivery_issue_at = db.Column(db.DateTime, nullable=True)
     # Admin accepted a COD receipt whose amount differs from the order total
     cod_approved = db.Column(db.Boolean, default=False)
+    # Orders over PREPAY_MAX: part of the total paid by bank up-front (rest = cash on delivery)
+    deposit_amount = db.Column(db.Float, default=0.0)
+    # Random key from the browser that made the order - lets the page find its order again after a refresh
+    idem_key = db.Column(db.String(64), nullable=True, index=True)
     transporter_id = db.Column(db.Integer, db.ForeignKey('transporter.id'), nullable=True)
     assigned_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     items = db.relationship('OrderItem', backref='order', lazy=True, cascade='all, delete-orphan')
+
+    @property
+    def has_deposit(self):
+        return bool(self.deposit_amount and self.deposit_amount > 0)
+
+    @property
+    def amount_due_now(self):
+        """What the customer must pay by bank now (the deposit, or the whole total)."""
+        return float(self.deposit_amount) if self.has_deposit else float(self.total_amount or 0)
+
+    @property
+    def cod_expected(self):
+        """Cash the transporter must collect on delivery (only orders above PREPAY_MAX)."""
+        total = float(self.total_amount or 0)
+        if total > PREPAY_MAX:
+            return max(0.0, total - float(self.deposit_amount or 0))
+        return 0.0
+
+    @property
+    def paid_amount(self):
+        """Bank money received for this order so far."""
+        if self.payment_required and self.payment_status == 'confirmed':
+            return self.amount_due_now
+        return 0.0
 
 
 class OrderItem(db.Model):
@@ -901,6 +936,22 @@ class StoredFile(db.Model):
     mimetype = db.Column(db.String(60), default='application/octet-stream')
     data = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class BankTransaction(db.Model):
+    """Money that entered / left the shop's bank accounts (ledger)."""
+    id = db.Column(db.Integer, primary_key=True)
+    bank_id = db.Column(db.Integer, nullable=True, index=True)
+    bank_label = db.Column(db.String(200), default='')
+    order_id = db.Column(db.Integer, nullable=True, index=True)
+    order_number = db.Column(db.String(40), default='')
+    kind = db.Column(db.String(20), default='payment')  # payment | refund | manual_in | manual_out
+    amount = db.Column(db.Float, default=0.0)  # always positive; the kind decides the sign
+    reference = db.Column(db.String(120), default='')
+    note = db.Column(db.String(255), default='')
+    actor = db.Column(db.String(80), default='')
+    voided = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
 
 
 class AuditLog(db.Model):
@@ -1270,8 +1321,11 @@ def _short_no(order):
 
 SMS_TEXTS = {
     'pay_request': {
-        'am': 'Dado: ትዕዛዝ {no}። {total} ብር በባንክ ይክፈሉና ደረሰኝ በድረ ገጹ ይላኩ።',
-        'en': 'Dado: order {no}. Please pay {total} ETB by bank and upload the receipt on the website.'},
+        'am': 'Dado: ትዕዛዝ {no}። {due} ብር በባንክ ይክፈሉና ደረሰኝ በድረ ገጹ ይላኩ።',
+        'en': 'Dado: order {no}. Please pay {due} ETB by bank and upload the receipt on the website.'},
+    'deposit_request': {
+        'am': 'Dado: ትዕዛዝ {no}። አሁን {due} ብር (ቅድሚያ ክፍያ) በባንክ ይክፈሉ፤ የቀረው {rest} ብር እቃው ሲደርስ ለአጓጓዡ ይከፈላል። ደረሰኝ በድረ ገጹ ይላኩ።',
+        'en': 'Dado: order {no}. Pay {due} ETB now by bank (deposit); the remaining {rest} ETB is paid to the driver on delivery. Upload the receipt on the website.'},
     'cod_notice': {
         'am': 'Dado: ትዕዛዝ {no}። ጠቅላላ {total} ብር (ሲደርስ ይከፈላል)። በትዕዛዝ ገጽ ያረጋግጡ።',
         'en': 'Dado: order {no}. Total {total} ETB, pay on delivery. Please confirm on your order page.'},
@@ -1311,6 +1365,7 @@ def order_sms(order, key, to='customer', **kw):
         phone = t.phone if t else None
     try:
         text = tpl.format(no=_short_no(order), total=f'{float(order.total_amount or 0):.0f}',
+                          due=f'{order.amount_due_now:.0f}', rest=f'{order.cod_expected:.0f}',
                           code=order.delivery_code or '', **kw)
     except Exception:
         return
@@ -1334,11 +1389,63 @@ def fee_locked(order):
 
 
 def cod_mismatch(order):
-    """True when the COD amount collected differs from the order total by more than ~2%."""
+    """True when the cash collected differs from the expected cash (~2% tolerance)."""
     if order.cod_amount_collected is None:
         return False
-    expected = float(order.total_amount or 0)
+    expected = float(order.cod_expected or 0)
+    if expected <= 0:
+        expected = float(order.total_amount or 0)
     return expected > 0 and abs(float(order.cod_amount_collected) - expected) > max(1.0, expected * 0.02)
+
+
+def _bank_label(order):
+    parts = [order.bank_name_snapshot or '', order.bank_account_number_snapshot or '']
+    return ' '.join(p for p in parts if p).strip()[:200]
+
+
+def ledger_sync_order_payment(order, actor=''):
+    """Keep the bank ledger in step with an order's payment status. The caller commits.
+
+    confirmed bank payment  -> one 'payment' row (amount = deposit or total);
+    anything else           -> that row is voided (e.g. payment rejected after being confirmed).
+    """
+    existing = BankTransaction.query.filter_by(order_id=order.id, kind='payment', voided=False).first()
+    if order.payment_required and order.payment_status == 'confirmed':
+        amount = float(order.amount_due_now or 0)
+        if amount <= 0:
+            return
+        if existing:
+            existing.amount = amount
+            existing.bank_id = order.bank_account_id
+            existing.bank_label = _bank_label(order)
+            existing.reference = (order.transaction_id or '')[:120]
+        else:
+            db.session.add(BankTransaction(
+                bank_id=order.bank_account_id, bank_label=_bank_label(order), order_id=order.id,
+                order_number=order.order_number, kind='payment', amount=amount,
+                reference=(order.transaction_id or '')[:120],
+                note=('deposit' if order.has_deposit else 'order payment'), actor=actor[:80]))
+    elif existing:
+        existing.voided = True
+        existing.note = ((existing.note or '') + ' [payment no longer confirmed]')[:255]
+
+
+def ledger_totals(bank_id=None, since=None, until=None):
+    """Return dict(in_=..., out=..., net=...) for non-voided rows."""
+    q = db.session.query(BankTransaction.kind, func.coalesce(func.sum(BankTransaction.amount), 0)) \
+        .filter(BankTransaction.voided == False)
+    if bank_id == 'none':
+        q = q.filter(BankTransaction.bank_id.is_(None))
+    elif bank_id:
+        q = q.filter(BankTransaction.bank_id == bank_id)
+    if since:
+        q = q.filter(BankTransaction.created_at >= since)
+    if until:
+        q = q.filter(BankTransaction.created_at < until)
+    sums = {k: float(v or 0) for k, v in q.group_by(BankTransaction.kind).all()}
+    incoming = sums.get('payment', 0.0) + sums.get('manual_in', 0.0)
+    outgoing = sums.get('refund', 0.0) + sums.get('manual_out', 0.0)
+    return {'in_': incoming, 'out': outgoing, 'net': incoming - outgoing}
 
 
 def generate_order_number():
@@ -1672,6 +1779,7 @@ def inject_globals():
         'now': utcnow(),
         'prepay_min': PREPAY_MIN,
         'prepay_max': PREPAY_MAX,
+        'deposit_percent': DEPOSIT_PERCENT,
         'current_customer': get_current_customer(),
         'map_tiles_url': map_tiles_url,
         'map_attribution': map_attribution,
@@ -1769,6 +1877,18 @@ def checkout():
                 'redirect': url_for('order_success', order_number=prev['order_number']),
                 'duplicate': True,
             })
+        # The cookie of the first attempt may never have reached the browser (page closed / refreshed
+        # while waiting), so also look the key up in the database.
+        if len(idem) >= 16:
+            earlier = Order.query.filter_by(idem_key=idem).first()
+            if earlier:
+                _remember_order_in_session(earlier.order_number)
+                return jsonify({
+                    'success': True,
+                    'order_number': earlier.order_number,
+                    'redirect': url_for('order_success', order_number=earlier.order_number),
+                    'duplicate': True,
+                })
 
     try:
         if request.is_json:
@@ -1937,6 +2057,7 @@ def checkout():
             bank_account_number_snapshot='',
             payment_note=_('Waiting for admin to set delivery fee'),
             delivery_code=f'{secrets.randbelow(10000):04d}',
+            idem_key=(idem if len(idem) >= 16 else None),
         )
         db.session.add(order)
         db.session.flush()
@@ -1995,6 +2116,31 @@ def checkout():
     })
 
 
+def _remember_order_in_session(order_number):
+    pending = session.get('pending_orders', [])
+    if order_number not in pending:
+        pending.insert(0, order_number)
+    session['pending_orders'] = pending[:20]
+    session.permanent = True
+
+
+@app.route('/api/checkout/recover')
+def checkout_recover():
+    """After a refresh / lost connection: did my last checkout attempt create an order?"""
+    key = (request.args.get('key') or '').strip()[:64]
+    resp = None
+    if len(key) >= 16 and not rate_exceeded('recover', 120, 3600):
+        order = Order.query.filter_by(idem_key=key).first()
+        if order:
+            _remember_order_in_session(order.order_number)
+            resp = jsonify({'found': True, 'order_number': order.order_number,
+                            'redirect': url_for('order_success', order_number=order.order_number)})
+    if resp is None:
+        resp = jsonify({'found': False})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 def _can_view_order(order):
     allowed = session.get('pending_orders') or []
     cust = get_current_customer()
@@ -2031,6 +2177,8 @@ def api_order_status(order_number):
         'items_subtotal': float(order.items_subtotal or 0),
         'delivery_fee': float(order.delivery_fee or 0),
         'total_amount': float(order.total_amount or 0),
+        'deposit_amount': float(order.deposit_amount or 0),
+        'amount_due_now': float(order.amount_due_now),
     })
 
 
@@ -2157,10 +2305,10 @@ def ai_help_reply(user_message, settings=None):
         return am_en(
             'ማድረሻ፦ ትዕዛዝ ሲያስገቡ GPS ወይም ካርታ ላይ ቦታዎን ያስቀምጡ።\n'
             'የመድረሻ ሰዓትን Admin ከትዕዛዝ በኋላ ያስተካክላል — በ Cart ላይ ያያሉ።\n'
-            'ከ 100,000 ብር በላይ ክፍያ በመላኪያ ጊዜ ነው።',
+            f'ከ 100,000 ብር በላይ፦ {DEPOSIT_PERCENT}% አሁን በባንክ፣ የቀረው እቃው ሲደርስ ለአጓጓዡ።',
             'Delivery: set your place with GPS or the map at checkout.\n'
             'Admin sets delivery hours after you order — see it on Cart.\n'
-            'Over 100,000 ETB is cash/pay on delivery.'
+            f'Over 100,000 ETB: {DEPOSIT_PERCENT}% by bank now, the rest to the driver on delivery.'
         )
 
     # payment
@@ -2168,10 +2316,10 @@ def ai_help_reply(user_message, settings=None):
         return am_en(
             'ክፍያ፦\n'
             '• 100–100,000 ብር፦ ባንክ ይምረጡ፣ ትራንዛክሽን ID ወይም የደረሰኝ ፎቶ ይላኩ። Admin ካረጋገጠ ትዕዛዝ ይረጋገጣል።\n'
-            '• ከ 100,000 በላይ፦ በመላኪያ ጊዜ ይከፍላሉ።',
+            f'• ከ 100,000 በላይ፦ {DEPOSIT_PERCENT}% አሁን በባንክ፣ የቀረውን እቃው ሲደርስ ለአጓጓዡ ይከፍላሉ።',
             'Payment:\n'
             '• 100–100,000 ETB: pick a bank, send transaction ID or receipt photo. Admin confirms.\n'
-            '• Over 100,000 ETB: pay on delivery.'
+            f'• Over 100,000 ETB: {DEPOSIT_PERCENT}% by bank now, the rest to the driver on delivery.'
         )
 
     # order status / track
@@ -2230,17 +2378,20 @@ SESSION_KEY_RE = re.compile(r'^[0-9a-f]{32}$')
 def chat_get_messages():
     session_key = request.args.get('session_key', '').strip()
     if not session_key or not SESSION_KEY_RE.match(session_key):
-        return jsonify({'messages': []})
+        return jsonify({'messages': [], 'max_id': 0})
     chat = ChatSession.query.filter_by(session_key=session_key).first()
     if not chat:
-        return jsonify({'messages': [], 'status': 'new'})
+        return jsonify({'messages': [], 'status': 'new', 'max_id': 0})
     msgs = [{
         'id': m.id,
         'sender': m.sender,
         'message': m.message,
         'created_at': (to_addis(m.created_at).strftime('%H:%M') if m.created_at else '')
     } for m in chat.messages]
-    return jsonify({'messages': msgs, 'status': chat.status})
+    resp = jsonify({'messages': msgs, 'status': chat.status, 'max_id': max([m['id'] for m in msgs] or [0])})
+    # Never let a browser / proxy / CDN reuse an old answer, or new admin replies would not show up.
+    resp.headers['Cache-Control'] = 'no-store, max-age=0'
+    return resp
 
 
 @app.route('/api/chat/send', methods=['POST'])
@@ -2794,7 +2945,7 @@ def transporter_order_status(oid):
     if order.status in ('cancelled', 'delivered'):
         flash(_('This order is already closed'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
-    if new_status == 'delivered' and order.total_amount > PREPAY_MAX and not order.delivery_receipt_path:
+    if new_status == 'delivered' and order.total_amount > PREPAY_MAX and order.cod_expected > 0 and not order.delivery_receipt_path:
         flash(_('Upload COD receipt before marking delivered'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
     if new_status == 'delivered' and cod_mismatch(order) and not order.cod_approved:
@@ -2955,7 +3106,7 @@ def transporter_delivery_receipt(oid):
     if amt is None or not math.isfinite(amt) or amt <= 0 or amt > 1e10:
         flash(_('Please enter a valid amount collected'), 'error')
         return redirect(url_for('transporter_order', oid=oid))
-    expected = float(order.total_amount or 0)
+    expected = float(order.cod_expected or 0) or float(order.total_amount or 0)
     note_extra = ''
     if expected > 0 and abs(amt - expected) > max(1.0, expected * 0.02):
         # Allow shortfall/overage but flag clearly for admin
@@ -3074,6 +3225,9 @@ def admin_dashboard():
                                                 Order.status.notin_(['delivered', 'cancelled'])).count(),
         'awaiting_quote': Order.query.filter(Order.payment_status == 'awaiting_quote',
                                              Order.status == 'pending').count(),
+        'bank_today': ledger_totals(since=day_start)['net'],
+        'bank_30d': ledger_totals(since=now - timedelta(days=30))['net'],
+        'bank_all': ledger_totals()['net'],
     }
     low_threshold = form_env_int('LOW_STOCK_THRESHOLD', 10, 0, 100000)
     low_stock = (db.session.query(ProductVariant, Product)
@@ -3160,6 +3314,132 @@ def admin_admins():
         return redirect(url_for('admin_admins'))
     admins = Admin.query.order_by(Admin.id).all()
     return render_template('admin/admins.html', admins=admins)
+
+
+def _ledger_filters():
+    bank = (request.args.get('bank') or '').strip()
+    kind = (request.args.get('kind') or '').strip()
+    d_from = (request.args.get('from') or '').strip()[:10]
+    d_to = (request.args.get('to') or '').strip()[:10]
+    return bank, kind, d_from, d_to
+
+
+def _addis_day_to_utc(text, end=False):
+    try:
+        day = datetime.strptime(text, '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return None
+    if end:
+        day += timedelta(days=1)
+    return day - timedelta(hours=3)
+
+
+def _ledger_query(bank, kind, d_from, d_to):
+    q = BankTransaction.query.order_by(BankTransaction.created_at.desc(), BankTransaction.id.desc())
+    if bank == 'none':
+        q = q.filter(BankTransaction.bank_id.is_(None))
+    elif bank.isdigit():
+        q = q.filter(BankTransaction.bank_id == int(bank))
+    if kind in ('payment', 'refund', 'manual_in', 'manual_out'):
+        q = q.filter(BankTransaction.kind == kind)
+    since = _addis_day_to_utc(d_from)
+    until = _addis_day_to_utc(d_to, end=True)
+    if since:
+        q = q.filter(BankTransaction.created_at >= since)
+    if until:
+        q = q.filter(BankTransaction.created_at < until)
+    return q, since, until
+
+
+@app.route('/admin/bank-ledger', methods=['GET', 'POST'])
+@admin_required
+def admin_bank_ledger():
+    """Money received in (and paid out of) the shop's bank accounts."""
+    banks = BankAccount.query.order_by(BankAccount.sort_order, BankAccount.id).all()
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if action == 'add':
+            kind = 'manual_out' if request.form.get('direction') == 'out' else 'manual_in'
+            amount = safe_float(request.form.get('amount'), None)
+            if amount is None or not math.isfinite(amount) or amount <= 0 or amount > 1e10:
+                flash(tx('እባክዎ ትክክለኛ መጠን ያስገቡ።', 'Please enter a valid amount.'), 'error')
+                return redirect(url_for('admin_bank_ledger'))
+            bank = db.session.get(BankAccount, safe_int(request.form.get('bank_id'), 0))
+            when = _addis_day_to_utc((request.form.get('date') or '').strip()[:10])
+            created = (when + timedelta(hours=12)) if when else utcnow()  # noon of the chosen day
+            db.session.add(BankTransaction(
+                bank_id=bank.id if bank else None,
+                bank_label=(f'{bank.bank_name} {bank.account_number}' if bank else '')[:200],
+                kind=kind, amount=amount,
+                reference=(request.form.get('reference') or '').strip()[:120],
+                note=(request.form.get('note') or '').strip()[:255],
+                actor=admin_actor()[:80], created_at=created))
+            audit('ledger_add', f'{kind} {amount:.2f} bank={bank.bank_name if bank else "-"}')
+            db.session.commit()
+            flash(tx('ተመዝግቧል።', 'Recorded.'), 'success')
+        elif action in ('void', 'set_bank'):
+            row = db.session.get(BankTransaction, safe_int(request.form.get('id'), 0))
+            if not row:
+                flash(tx('አልተገኘም።', 'Not found.'), 'error')
+            elif action == 'void':
+                if row.kind == 'payment':
+                    flash(tx('የትዕዛዝ ክፍያ እዚህ መሰረዝ አይቻልም፤ በትዕዛዙ ገጽ ላይ ክፍያውን ውድቅ ያድርጉ።',
+                             'An order payment cannot be removed here - reject the payment on the order page.'), 'error')
+                else:
+                    row.voided = True
+                    audit('ledger_void', f'#{row.id} {row.kind} {row.amount:.2f}')
+                    db.session.commit()
+                    flash(tx('ተሰርዟል።', 'Removed.'), 'success')
+            else:
+                bank = db.session.get(BankAccount, safe_int(request.form.get('bank_id'), 0))
+                row.bank_id = bank.id if bank else None
+                row.bank_label = (f'{bank.bank_name} {bank.account_number}' if bank else '')[:200]
+                audit('ledger_bank', f'#{row.id} -> {bank.bank_name if bank else "-"}')
+                db.session.commit()
+                flash(tx('ተስተካክሏል።', 'Updated.'), 'success')
+        return redirect(url_for('admin_bank_ledger', **{k: v for k, v in request.args.items() if v}))
+
+    bank, kind, d_from, d_to = _ledger_filters()
+    query, since, until = _ledger_query(bank, kind, d_from, d_to)
+    rows = query.limit(300).all()
+    now = utcnow()
+    day_start = (now + timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    month_start = (now + timedelta(hours=3)).replace(day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    per_bank = []
+    for b in banks:
+        per_bank.append({'bank': b, 'all': ledger_totals(b.id), 'today': ledger_totals(b.id, since=day_start),
+                         'month': ledger_totals(b.id, since=month_start)})
+    unassigned = ledger_totals('none')
+    return render_template('admin/bank_ledger.html', rows=rows, banks=banks, per_bank=per_bank,
+                           unassigned=unassigned, total_all=ledger_totals(),
+                           total_today=ledger_totals(since=day_start), total_month=ledger_totals(since=month_start),
+                           filtered=ledger_totals('none' if bank == 'none' else (int(bank) if bank.isdigit() else None),
+                                                  since=since, until=until),
+                           f_bank=bank, f_kind=kind, f_from=d_from, f_to=d_to,
+                           export_qs=urlencode({k: v for k, v in (('bank', bank), ('kind', kind),
+                                                                   ('from', d_from), ('to', d_to)) if v}))
+
+
+@app.route('/admin/bank-ledger/export.csv')
+@admin_required
+def admin_bank_ledger_export():
+    bank, kind, d_from, d_to = _ledger_filters()
+    query, _since, _until = _ledger_query(bank, kind, d_from, d_to)
+    buf = StringIO()
+    w = csv.writer(buf)
+    w.writerow(['date_addis', 'bank', 'type', 'amount_in', 'amount_out', 'order', 'reference', 'note', 'by', 'voided'])
+    for r in query.limit(10000).all():
+        incoming = r.amount if r.kind in ('payment', 'manual_in') else ''
+        outgoing = r.amount if r.kind in ('refund', 'manual_out') else ''
+        w.writerow([_csv_safe(x) for x in (
+            to_addis(r.created_at).strftime('%Y-%m-%d %H:%M') if r.created_at else '', r.bank_label, r.kind,
+            incoming, outgoing, r.order_number, r.reference, r.note, r.actor, 'yes' if r.voided else '')])
+    audit('export_ledger', f'bank={bank} kind={kind} {d_from}..{d_to}')
+    db.session.commit()
+    resp = Response('\ufeff' + buf.getvalue(), mimetype='text/csv; charset=utf-8')
+    resp.headers['Content-Disposition'] = f'attachment; filename=bank_ledger_{utcnow().strftime("%Y%m%d_%H%M")}.csv'
+    resp.headers['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 @app.route('/admin/audit')
@@ -3591,6 +3871,7 @@ def admin_orders():
                 flash(f'{order.order_number}: ' + tx('ክፍያ ከተፈጸመ/ከተረጋገጠ ወይም ትዕዛዙ ከተላከ በኋላ የማድረሻ ክፍያ መቀየር አይቻልም። መጀመሪያ ክፍያውን ውድቅ ያድርጉ ወይም ትዕዛዙን ይሰርዙ።', 'The delivery fee cannot be changed after payment was sent/confirmed or the order was dispatched. Reject the payment or cancel the order first.'), 'error')
             elif request.form.get(f'request_pay_{oid}'):
                 grand = float(order.total_amount or 0)
+                order.deposit_amount = 0.0
                 if grand < PREPAY_MIN:
                     order.payment_required = False
                     order.payment_status = 'not_required'
@@ -3606,13 +3887,14 @@ def admin_orders():
                     )
                     order_sms(order, 'pay_request')
                 else:
-                    order.payment_required = False
-                    order.payment_status = 'awaiting_customer'
-                    order.payment_note = _(
-                        'Delivery fee set. Total %(t)s ETB — pay on delivery. Please confirm.',
-                        t=f'{grand:.0f}'
-                    )
-                    order_sms(order, 'cod_notice')
+                    deposit = float(math.ceil(grand * DEPOSIT_PERCENT / 100.0))
+                    order.deposit_amount = deposit
+                    order.payment_required = True
+                    order.payment_status = 'pending'
+                    order.payment_note = tx(
+                        f'ጠቅላላ {grand:.0f} ብር። አሁን {deposit:.0f} ብር ({DEPOSIT_PERCENT}%) በባንክ ይክፈሉ፤ የቀረውን {grand - deposit:.0f} ብር እቃው ሲደርስ ለአጓጓዡ ይከፍላሉ። ደረሰኝ ወይም transaction ID ይላኩ።',
+                        f'Total {grand:.0f} ETB. Pay {deposit:.0f} ETB ({DEPOSIT_PERCENT}%) by bank now; the remaining {grand - deposit:.0f} ETB is paid to the transporter on delivery. Send the receipt or transaction ID.')
+                    order_sms(order, 'deposit_request')
             updated += 1
         db.session.commit()
         flash(_('Saved %(n)s order(s)', n=updated), 'success')
@@ -3753,6 +4035,7 @@ def admin_order_detail(oid):
             order.delivery_fee = fee
             order.total_amount = items + fee
             grand = order.total_amount
+            order.deposit_amount = 0.0
             if grand < PREPAY_MIN:
                 # Small order — no bank deposit; mark ready
                 order.payment_required = False
@@ -3769,14 +4052,15 @@ def admin_order_detail(oid):
                 )
                 order_sms(order, 'pay_request')
             else:
-                # Over 100,000 — COD: ask customer to accept delivery fee; pay on delivery
-                order.payment_required = False
-                order.payment_status = 'awaiting_customer'
-                order.payment_note = _(
-                    'Delivery fee is %(d)s ETB. Grand total %(t)s ETB. No bank transfer needed — pay when items are delivered. Please confirm on your order page.',
-                    d=f'{fee:.0f}', t=f'{grand:.0f}'
-                )
-                order_sms(order, 'cod_notice')
+                # Over 100,000: DEPOSIT_PERCENT by bank now, the rest in cash to the transporter
+                deposit = float(math.ceil(grand * DEPOSIT_PERCENT / 100.0))
+                order.deposit_amount = deposit
+                order.payment_required = True
+                order.payment_status = 'pending'
+                order.payment_note = tx(
+                    f'ጠቅላላ {grand:.0f} ብር። አሁን {deposit:.0f} ብር ({DEPOSIT_PERCENT}%) በባንክ ይክፈሉ፤ የቀረውን {grand - deposit:.0f} ብር እቃው ሲደርስ ለአጓጓዡ ይከፍላሉ። ደረሰኝ ወይም transaction ID ይላኩ።',
+                    f'Total {grand:.0f} ETB. Pay {deposit:.0f} ETB ({DEPOSIT_PERCENT}%) by bank now; the remaining {grand - deposit:.0f} ETB is paid to the transporter on delivery. Send the receipt or transaction ID.')
+                order_sms(order, 'deposit_request')
             log_order_change(order, 'payment_status', None, order.payment_status, actor='admin', note='request payment / customer notice')
             db.session.commit()
             flash(_('Customer payment request sent'), 'success')
@@ -3854,6 +4138,7 @@ def admin_order_detail(oid):
                     log_order_change(order, 'payment_status', old_pay, pay, actor=admin_actor(), note=note or '')
                 except Exception:
                     pass
+                ledger_sync_order_payment(order, admin_actor())
                 if pay == 'confirmed' and old_pay != 'confirmed':
                     order_sms(order, 'payment_ok')
                 elif pay == 'rejected' and old_pay != 'rejected':
@@ -3869,7 +4154,12 @@ def admin_order_detail(oid):
             order.refunded_at = utcnow()
             order.refund_note = (request.form.get('refund_note') or '').strip()[:255]
             log_order_change(order, 'refund', 'due', 'refunded', actor=admin_actor(), note=order.refund_note)
-            audit('refund', f'{order.order_number}: {order.total_amount:.0f} ETB {order.refund_note}')
+            audit('refund', f'{order.order_number}: {order.paid_amount:.0f} ETB {order.refund_note}')
+            if order.paid_amount > 0:
+                db.session.add(BankTransaction(
+                    bank_id=order.bank_account_id, bank_label=_bank_label(order), order_id=order.id,
+                    order_number=order.order_number, kind='refund', amount=float(order.paid_amount),
+                    reference=order.refund_note[:120], note='refund to customer', actor=admin_actor()[:80]))
             db.session.commit()
             flash(tx('ተመላሽ ገንዘብ ተመዝግቧል።', 'Refund recorded.'), 'success')
             return back
@@ -4224,14 +4514,35 @@ def admin_chat_detail(cid):
             flash(_('Chat closed'), 'success')
             return redirect(url_for('admin_support'))
         message = request.form.get('message', '').strip()[:2000]
+        new_id = None
         if message:
             msg = ChatMessage(session_id=chat.id, sender='admin', message=message)
             db.session.add(msg)
             chat.updated_at = utcnow()
             chat.status = 'open'
             db.session.commit()
+            new_id = msg.id
+        if request.headers.get('X-Requested-With') == 'fetch':
+            return jsonify({'ok': bool(message), 'id': new_id})
         return redirect(url_for('admin_chat_detail', cid=cid))
     return render_template('admin/chat_detail.html', chat=chat)
+
+
+@app.route('/admin/api/chat/<int:cid>/messages')
+@admin_required
+def admin_chat_messages(cid):
+    """Messages newer than ?after=<id>, so the admin chat page updates without a refresh."""
+    chat = db.get_or_404(ChatSession, cid)
+    after = safe_int(request.args.get('after'), 0)
+    rows = (ChatMessage.query.filter(ChatMessage.session_id == chat.id, ChatMessage.id > after)
+            .order_by(ChatMessage.id).limit(100).all())
+    resp = jsonify({
+        'messages': [{'id': m.id, 'sender': m.sender, 'message': m.message,
+                      'created_at': to_addis(m.created_at).strftime('%H:%M') if m.created_at else ''} for m in rows],
+        'status': chat.status,
+    })
+    resp.headers['Cache-Control'] = 'no-store, max-age=0'
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -4339,6 +4650,8 @@ def init_db():
                 ('order', 'delivery_issue', "VARCHAR(255) DEFAULT ''"),
                 ('order', 'delivery_issue_at', ts),
                 ('order', 'cod_approved', 'BOOLEAN DEFAULT FALSE'),
+                ('order', 'deposit_amount', 'FLOAT DEFAULT 0'),
+                ('order', 'idem_key', 'VARCHAR(64)'),
             ]:
                 _ensure_column(table, col, ddl)
         except Exception as e:

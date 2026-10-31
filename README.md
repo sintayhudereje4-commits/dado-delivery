@@ -72,7 +72,8 @@ Open: http://127.0.0.1:5000
 2. The admin sets the delivery fee and presses *Request payment*:
    - total **100 – 100,000 ETB** → customer pays by bank and uploads a receipt / transaction ID; the admin confirms
      (confirmation needs a receipt or transaction ID);
-   - total **over 100,000 ETB** → cash on delivery: the customer accepts the total, the transporter collects the money and uploads a receipt;
+   - total **over 100,000 ETB** → the customer pays `DEPOSIT_PERCENT` (default **50%**) by bank now (receipt / transaction ID,
+     confirmed by the admin); the **rest is collected in cash by the transporter** on delivery, who uploads a receipt for that amount;
    - total **under 100 ETB** → no payment step.
 3. After payment is confirmed (or COD accepted) the admin assigns a transporter. The customer gets an SMS with a
    **4-digit delivery code**; the transporter must enter it to mark the order delivered.
@@ -96,6 +97,7 @@ Open: http://127.0.0.1:5000
 | `MAX_OPEN_ORDERS_PER_PHONE` | unfinished orders allowed per phone | 3 |
 | `QUOTE_TIMEOUT_HOURS` | auto-cancel never-quoted / unaccepted orders after | 72 |
 | `LOW_STOCK_THRESHOLD` | dashboard low-stock warning | 10 |
+| `DEPOSIT_PERCENT` | share of an order over 100,000 ETB paid by bank up-front (10–90) | 50 |
 | `FILES_IN_DB` | keep uploaded files in the database | on for PostgreSQL |
 
 Admin panel additions: sales figures and low stock on the dashboard, order filters + pagination + CSV export, refund
@@ -199,3 +201,13 @@ SMS_PROVIDER=console   # or: twilio | africastalking | http
 SQLite, `static/uploads`, and `instance/private_uploads` live on the server disk.
 On **Render free**, the filesystem is **ephemeral** — redeploys wipe local files.
 Use **PostgreSQL** (`DATABASE_URL`) and external object storage for receipts/images in production.
+
+## Bank ledger ("Money received")
+Admin → *Money received* lists every confirmed bank payment (automatically, per bank account; for big orders only the
+deposit), subtracts recorded refunds, and lets you add other deposits/payments by hand. Totals per bank (today / this month /
+all time), filters by bank, type and date, and CSV export. The balance shown is the sum of the entries, not your real bank balance.
+
+## Interrupted checkout
+The browser keeps a random key for the order it is sending. If the page is refreshed or closed while "waiting", the next page
+load asks the server (`/api/checkout/recover`) whether that order was created; if yes the cart is emptied and the customer goes
+to the order page - no duplicate order and no stale cart.

@@ -1,0 +1,121 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Money received{% endblock %}
+{% block content %}
+{% macro money(v) %}{{ '{:,.2f}'.format(v) }}{% endmacro %}
+<div class="page-header">
+    <h1>Money received (ባንክ ገቢ)</h1>
+    <a href="{{ url_for('admin_banks') }}" class="btn btn-outline">Bank accounts</a>
+</div>
+<p class="hint">Every confirmed bank payment is added here automatically (for orders over 100,000 ETB only the up-front part).
+Refunds are subtracted when you record them. Cash paid to the transporter on delivery is not bank money and is not counted.
+You can also add deposits or payments that did not come from an order.</p>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-value">{{ money(total_today.net) }}</div><div class="stat-label">Net today (ብር)</div></div>
+    <div class="stat-card"><div class="stat-value">{{ money(total_month.net) }}</div><div class="stat-label">Net this month (ብር)</div></div>
+    <div class="stat-card"><div class="stat-value">{{ money(total_all.in_) }}</div><div class="stat-label">Total received (ብር)</div></div>
+    <div class="stat-card warning"><div class="stat-value">{{ money(total_all.out) }}</div><div class="stat-label">Refunded / paid out (ብር)</div></div>
+    <div class="stat-card"><div class="stat-value">{{ money(total_all.net) }}</div><div class="stat-label">Balance recorded (ብር)</div></div>
+</div>
+
+<h2>Per bank account</h2>
+<div class="table-wrap">
+<table class="admin-table">
+<thead><tr><th>Bank</th><th>Today</th><th>This month</th><th>Received</th><th>Paid out</th><th>Balance recorded</th></tr></thead>
+<tbody>
+{% for pb in per_bank %}
+<tr>
+    <td><a href="{{ url_for('admin_bank_ledger', bank=pb.bank.id) }}">{{ pb.bank.bank_name }} — {{ pb.bank.account_number }}</a>{% if not pb.bank.is_active %} <small>(inactive)</small>{% endif %}</td>
+    <td>{{ money(pb.today.net) }}</td><td>{{ money(pb.month.net) }}</td>
+    <td>{{ money(pb.all.in_) }}</td><td>{{ money(pb.all.out) }}</td><td><strong>{{ money(pb.all.net) }}</strong></td>
+</tr>
+{% endfor %}
+{% if unassigned.in_ or unassigned.out %}
+<tr>
+    <td><a href="{{ url_for('admin_bank_ledger', bank='none') }}">No bank chosen</a></td><td></td><td></td>
+    <td>{{ money(unassigned.in_) }}</td><td>{{ money(unassigned.out) }}</td><td><strong>{{ money(unassigned.net) }}</strong></td>
+</tr>
+{% endif %}
+</tbody>
+</table>
+</div>
+<p class="hint" style="margin-top:6px;">“Balance recorded” is the sum of the entries here, not your real bank balance. Compare it with your bank statement now and then.</p>
+
+<form method="POST" class="admin-form" style="margin:24px 0;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="add">
+    <h3>Add an entry (money in / out)</h3>
+    <div class="form-row">
+        <div class="form-group"><label>Bank account</label>
+            <select name="bank_id" required>
+                {% for b in banks %}<option value="{{ b.id }}">{{ b.bank_name }} — {{ b.account_number }}</option>{% endfor %}
+            </select></div>
+        <div class="form-group"><label>Type</label>
+            <select name="direction"><option value="in">Money in (ገቢ)</option><option value="out">Money out (ወጪ)</option></select></div>
+        <div class="form-group"><label>Amount (ብር)</label><input type="number" name="amount" step="0.01" min="0.01" required></div>
+        <div class="form-group"><label>Date</label><input type="date" name="date"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Reference / transaction ID</label><input type="text" name="reference" maxlength="120"></div>
+        <div class="form-group"><label>Note</label><input type="text" name="note" maxlength="255" placeholder="e.g. cash deposited, supplier payment"></div>
+    </div>
+    <button class="btn btn-primary" type="submit">Save entry</button>
+</form>
+
+<h2>Entries</h2>
+<form method="GET" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:end;">
+    <select name="bank" style="padding:8px;border:1px solid #ccc;border-radius:8px;">
+        <option value="">All banks</option>
+        {% for b in banks %}<option value="{{ b.id }}" {% if f_bank == b.id|string %}selected{% endif %}>{{ b.bank_name }} — {{ b.account_number }}</option>{% endfor %}
+        <option value="none" {% if f_bank == 'none' %}selected{% endif %}>No bank chosen</option>
+    </select>
+    <select name="kind" style="padding:8px;border:1px solid #ccc;border-radius:8px;">
+        <option value="">All types</option>
+        {% for k, label in [('payment','Order payments'),('manual_in','Manual in'),('refund','Refunds'),('manual_out','Manual out')] %}
+        <option value="{{ k }}" {% if f_kind == k %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <label style="font-size:.85rem;">From <input type="date" name="from" value="{{ f_from }}" style="padding:7px;border:1px solid #ccc;border-radius:8px;"></label>
+    <label style="font-size:.85rem;">To <input type="date" name="to" value="{{ f_to }}" style="padding:7px;border:1px solid #ccc;border-radius:8px;"></label>
+    <button class="btn btn-sm btn-primary" type="submit">Filter</button>
+    <a class="btn btn-sm btn-outline" href="{{ url_for('admin_bank_ledger_export') }}{% if export_qs %}?{{ export_qs }}{% endif %}">⬇ Export CSV</a>
+</form>
+<p style="margin:0 0 8px;color:#555;">In this view: received <strong>{{ money(filtered.in_) }}</strong> · paid out <strong>{{ money(filtered.out) }}</strong> · net <strong>{{ money(filtered.net) }}</strong> ብር</p>
+
+<div class="table-wrap">
+<table class="admin-table">
+<thead><tr><th>Date</th><th>Bank</th><th>Type</th><th>In</th><th>Out</th><th>Order</th><th>Reference / note</th><th></th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr {% if r.voided %}style="opacity:.45;text-decoration:line-through;"{% endif %}>
+    <td style="white-space:nowrap;">{{ r.created_at|addis }}</td>
+    <td>
+        {% if r.bank_label %}{{ r.bank_label }}{% else %}
+        <form method="POST" style="display:inline-flex;gap:4px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="set_bank"><input type="hidden" name="id" value="{{ r.id }}">
+            <select name="bank_id" style="padding:4px;">{% for b in banks %}<option value="{{ b.id }}">{{ b.bank_name }}</option>{% endfor %}</select>
+            <button class="btn btn-sm btn-outline" type="submit">Set</button>
+        </form>
+        {% endif %}
+    </td>
+    <td>{{ {'payment':'Order payment','manual_in':'Manual in','refund':'Refund','manual_out':'Manual out'}.get(r.kind, r.kind) }}</td>
+    <td style="color:#2e7d32;">{% if r.kind in ('payment','manual_in') %}{{ money(r.amount) }}{% endif %}</td>
+    <td style="color:#c62828;">{% if r.kind in ('refund','manual_out') %}{{ money(r.amount) }}{% endif %}</td>
+    <td>{% if r.order_id %}<a href="{{ url_for('admin_order_detail', oid=r.order_id) }}">{{ r.order_number[-8:] }}</a>{% endif %}</td>
+    <td>{{ r.reference }}{% if r.note %}<br><small>{{ r.note }}</small>{% endif %}</td>
+    <td>
+        {% if r.kind in ('manual_in','manual_out') and not r.voided %}
+        <form method="POST" onsubmit="return confirm('Remove this entry?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="void"><input type="hidden" name="id" value="{{ r.id }}">
+            <button class="btn btn-sm btn-danger" type="submit">Remove</button>
+        </form>
+        {% endif %}
+    </td>
+</tr>
+{% else %}
+<tr><td colspan="8">No entries yet. Confirmed bank payments will appear here.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<p class="hint">Showing the newest 300 entries of this view.</p>
+{% endblock %}

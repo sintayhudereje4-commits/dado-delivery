@@ -44,6 +44,8 @@
     <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_today) }}</div><div class="stat-label">Delivered today (ብር)</div></div>
     <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_7d) }}</div><div class="stat-label">Delivered last 7 days (ብር)</div></div>
     <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.revenue_30d) }}</div><div class="stat-label">Delivered last 30 days (ብር) · {{ stats.delivered_30d }} orders</div></div>
+    <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.bank_today) }}</div><div class="stat-label"><a href="{{ url_for('admin_bank_ledger') }}" style="color:inherit;">Bank received today (ብር)</a></div></div>
+    <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.bank_30d) }}</div><div class="stat-label"><a href="{{ url_for('admin_bank_ledger') }}" style="color:inherit;">Bank received 30 days (ብር)</a></div></div>
     <div class="stat-card warning"><div class="stat-value">{{ stats.awaiting_quote }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', status='pending') }}" style="color:inherit;">Need delivery fee / quote</a></div></div>
     <div class="stat-card warning"><div class="stat-value">{{ stats.payments_to_check }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', flag='payment') }}" style="color:inherit;">Payments to check</a></div></div>
     <div class="stat-card warning"><div class="stat-value">{{ stats.issues }}</div><div class="stat-label"><a href="{{ url_for('admin_orders', flag='issue') }}" style="color:inherit;">Delivery problems</a></div></div>

@@ -75,6 +75,17 @@
             <p><strong>{% if current_lang == 'am' %}የእቃዎች{% else %}Items{% endif %}:</strong> {{ '%.0f'|format(order.items_subtotal or 0) }} ብር
                + <strong>{% if current_lang == 'am' %}ዴሊቨሪ{% else %}Delivery{% endif %}:</strong> {{ '%.0f'|format(order.delivery_fee or 0) }} ብር
                = <strong>{{ '%.0f'|format(order.total_amount) }} ብር</strong></p>
+            {% if order.has_deposit %}
+            <p style="font-size:1.15rem;background:#fff3e0;padding:10px 12px;border-radius:8px;">
+                {% if current_lang == 'am' %}
+                አሁን የሚከፈል (ቅድመ ክፍያ {{ deposit_percent }}%): <strong>{{ '%.0f'|format(order.deposit_amount) }} ብር</strong><br>
+                የቀረው <strong>{{ '%.0f'|format(order.cod_expected) }} ብር</strong> እቃው ሲደርስ ለአጓጓዡ በጥሬ ገንዘብ ይከፈላል።
+                {% else %}
+                Pay now (deposit {{ deposit_percent }}%): <strong>{{ '%.0f'|format(order.deposit_amount) }} ETB</strong><br>
+                The remaining <strong>{{ '%.0f'|format(order.cod_expected) }} ETB</strong> is paid in cash to the transporter when you receive the goods.
+                {% endif %}
+            </p>
+            {% endif %}
             <p id="payPendingMsg" style="color:#e65100;">
                 {% if current_lang == 'am' %}እባክዎ ባንክ ያስገቡና ትራንዛክሽን ID ወይም ደረሰኝ ይላኩ።{% else %}Please deposit to a bank below and send transaction ID or receipt.{% endif %}
             </p>
@@ -103,6 +114,16 @@
                 {% if current_lang == 'am' %}ክፍያ ተረጋግጧል ✓{% else %}Payment confirmed ✓{% endif %}
             </p>
         </div>
+
+        {% if order.has_deposit and order.payment_status == 'confirmed' and order.status not in ('delivered', 'cancelled') %}
+        <div class="order-details-box" style="margin-top:12px;background:#e8f5e9;color:#1b5e20;">
+            {% if current_lang == 'am' %}
+            ✓ ቅድመ ክፍያዎ ({{ '%.0f'|format(order.deposit_amount) }} ብር) ተረጋግጧል። እቃው ሲደርስ <strong>{{ '%.0f'|format(order.cod_expected) }} ብር</strong> በጥሬ ገንዘብ ለአጓጓዡ ያዘጋጁ።
+            {% else %}
+            ✓ Your deposit ({{ '%.0f'|format(order.deposit_amount) }} ETB) is confirmed. Please have <strong>{{ '%.0f'|format(order.cod_expected) }} ETB</strong> in cash ready for the transporter on delivery.
+            {% endif %}
+        </div>
+        {% endif %}
 
         <div id="codBox" class="order-details-box" style="margin-top:12px;background:#e3f2fd;color:#0d47a1;{% if order.payment_status != 'awaiting_customer' %}display:none;{% endif %}">
             {% if current_lang == 'am' %}

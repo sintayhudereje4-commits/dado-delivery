@@ -183,3 +183,40 @@ function refreshCartPrices(cb) {
         if (cb) cb(next, removed);
     }).catch(function(){ if (cb) cb(cart, 0); });
 }
+
+
+/* If the browser was refreshed / closed while an order was being sent, find out whether the
+   server created it. If yes: empty the cart and go to the order page (no duplicate, no confusion). */
+(function recoverCheckout() {
+    var KEY = 'dado_checkout_pending';
+    var pend = null;
+    try { pend = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    if (!pend || !pend.key) { try { localStorage.removeItem(KEY); } catch (e) {} return; }
+    var tries = 0;
+    function forget() { try { localStorage.removeItem(KEY); } catch (e) {} }
+    function check() {
+        fetch('/api/checkout/recover?key=' + encodeURIComponent(pend.key) + '&_=' + Date.now(),
+              { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d && d.found) {
+                    forget();
+                    clearCart();
+                    var p = location.pathname;
+                    if (p.indexOf('/cart') === 0 || p.indexOf('/checkout') === 0) {
+                        location.replace(d.redirect);
+                    } else if (typeof showToast === 'function') {
+                        showToast('Your order was received — open Cart to see it.', 'success');
+                    }
+                    return;
+                }
+                tries++;
+                // The request may still be on its way: look again for ~90 seconds, then give up.
+                if (Date.now() - (pend.ts || 0) < 90000 && tries < 8) setTimeout(check, 3000);
+                else forget();
+            })
+            .catch(function () { if (++tries < 4) setTimeout(check, 4000); });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
+    else check();
+})();

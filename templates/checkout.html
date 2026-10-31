@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const recInput = document.getElementById('receipt');
     const overNote = document.createElement('p');
     overNote.style.cssText = 'background:#e3f2fd;padding:12px;border-radius:8px;margin:12px 0;color:#1565c0;display:none;';
-    overNote.textContent = '{% if current_lang == "am" %}ከ 100,000 ብር በላይ የሞባይል ወይም የባንክ ትራንስፈር አያስፈልግም። እቃዎ በእጅዎ ሲደርስ ክፍያውን መፈጸም ይችላሉ።{% else %}Over 100,000 ETB — no mobile or bank transfer needed. You can pay when the items are delivered to you.{% endif %}';
+    overNote.textContent = '{% if current_lang == "am" %}ከ 100,000 ብር በላይ፦ የማድረሻ ክፍያ ከተጨመረ በኋላ {{ deposit_percent }}% ቅድመ ክፍያ በባንክ ይከፍላሉ፤ የቀረውን እቃው ሲደርስ ለአጓጓዡ በጥሬ ገንዘብ ይከፍላሉ።{% else %}Over 100,000 ETB: once the delivery fee is added you pay {{ deposit_percent }}% by bank as a deposit, and the rest in cash to the transporter when the goods arrive.{% endif %}';
     paySec.parentNode.insertBefore(overNote, paySec);
 
     // Summary and payment box are always derived from the CURRENT cart prices,
@@ -374,10 +374,21 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Stable key for this submit attempt (prevents double order on network retry)
-        if (!window._checkoutIdem) {
-            window._checkoutIdem = (crypto.randomUUID ? crypto.randomUUID() :
-                (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+        // The key is kept in localStorage (not just in memory): if the page is refreshed or closed
+        // while the order is being sent, the next page load can ask the server whether the order
+        // was created (see recoverCheckout in app.js) and the same key can never create a second order.
+        const cartSig = JSON.stringify(cart.map(function (i) { return [i.variant_id, i.quantity]; }));
+        let pend = null;
+        try { pend = JSON.parse(localStorage.getItem('dado_checkout_pending') || 'null'); } catch (e) {}
+        if (!pend || !pend.key || pend.sig !== cartSig || (Date.now() - (pend.ts || 0)) > 24 * 3600 * 1000) {
+            pend = {
+                key: (crypto.randomUUID ? crypto.randomUUID() :
+                      (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))),
+                sig: cartSig, ts: Date.now()
+            };
         }
+        try { localStorage.setItem('dado_checkout_pending', JSON.stringify(pend)); } catch (e) {}
+        window._checkoutIdem = pend.key;
         const fd = new FormData();
         fd.append('idempotency_key', window._checkoutIdem);
         fd.append('cart', JSON.stringify(cart));
@@ -403,10 +414,13 @@ document.addEventListener('DOMContentLoaded', function () {
             const res = await fetch('{{ url_for("checkout") }}', { method: 'POST', body: fd });
             const data = await res.json();
             if (data.success) {
+                try { localStorage.removeItem('dado_checkout_pending'); } catch (e) {}
                 clearCart();
                 window.location.href = data.redirect;
                 return;
             }
+            // The server answered "no": no order was created, so forget this attempt.
+            try { localStorage.removeItem('dado_checkout_pending'); } catch (e) {}
             if (data.code === 'payment_required') {
                 // The server's total says a bank deposit is required: show the payment box
                 // with fresh prices instead of leaving the customer stuck.

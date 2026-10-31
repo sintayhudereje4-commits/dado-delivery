@@ -15,11 +15,15 @@
     if (!fab || !widget) return;
 
     let pollTimer = null;
-    const LAST_MSG_KEY = 'dado_chat_last_msg';
-    let lastMsgId = parseInt(localStorage.getItem(LAST_MSG_KEY) || '0', 10) || 0;
+    const SEEN_KEY = 'dado_chat_seen_upto';
+    // Ids already drawn in the open window. We compare by id (not "bigger than the last one"),
+    // so a reset database or an old stored number can never hide a new admin reply.
+    const drawn = new Set();
+    let seenUpTo = parseInt(localStorage.getItem(SEEN_KEY) || '0', 10) || 0;
+    let busy = false;
 
-    function persistLastMsgId() {
-        try { localStorage.setItem(LAST_MSG_KEY, String(lastMsgId)); } catch (e) {}
+    function persistSeen() {
+        try { localStorage.setItem(SEEN_KEY, String(seenUpTo)); } catch (e) {}
     }
 
     function getSessionKey() {
@@ -30,11 +34,15 @@
         localStorage.setItem(SESSION_KEY, key);
     }
 
+    function isOpen() {
+        return widget.classList.contains('is-open');
+    }
+
     function openChat() {
         widget.classList.add('is-open');
         fab.classList.add('open');
         if (badge) badge.hidden = true;
-        loadMessages();
+        fetchMessages(true);
         startPolling();
         setTimeout(function () { input && input.focus(); }, 150);
     }
@@ -42,13 +50,12 @@
     function closeChat() {
         widget.classList.remove('is-open');
         fab.classList.remove('open');
-        stopPolling();
+        startPolling(); // keep a slower poll so the badge still works
     }
 
-    function appendBubble(msg, scroll) {
-        if (msg.id && msg.id <= lastMsgId && msg.sender !== 'system') return;
-        if (msg.id) { lastMsgId = Math.max(lastMsgId, msg.id); persistLastMsgId(); }
-
+    function appendBubble(msg) {
+        if (msg.id && drawn.has(msg.id)) return false;
+        if (msg.id) drawn.add(msg.id);
         const div = document.createElement('div');
         div.className = 'chat-bubble ' + (msg.sender || 'system');
         if (msg.sender === 'ai') {
@@ -69,64 +76,52 @@
             div.appendChild(time);
         }
         messagesEl.appendChild(div);
-        if (scroll !== false) {
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
+        return true;
     }
 
-    function renderMessages(list) {
-        // Full redraw: temporarily allow all messages (ignore lastMsgId filter)
-        const system = messagesEl.querySelector('.chat-bubble.system');
-        messagesEl.innerHTML = '';
-        if (system) messagesEl.appendChild(system);
-        var saved = lastMsgId;
-        lastMsgId = 0;
-        (list || []).forEach(function (m) {
-            appendBubble(m, false);
-        });
-        // Keep the highest id we have seen (either from this list or previous polls)
-        lastMsgId = Math.max(saved, lastMsgId);
-        persistLastMsgId();
+    function scrollDown() {
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    function loadMessages() {
+    function fetchMessages(fullRedraw) {
         const key = getSessionKey();
-        if (!key) return;
-        fetch('/api/chat/messages?session_key=' + encodeURIComponent(key))
+        if (!key || busy) return;
+        busy = true;
+        // timestamp in the URL + no-store: the answer can never come from a cache
+        fetch('/api/chat/messages?session_key=' + encodeURIComponent(key) + '&_=' + Date.now(), { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (data.messages) renderMessages(data.messages);
-            })
-            .catch(function () {});
-    }
-
-    function pollMessages() {
-        const key = getSessionKey();
-        if (!key) return;
-        fetch('/api/chat/messages?session_key=' + encodeURIComponent(key))
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
+                busy = false;
                 const list = data.messages || [];
-                let newAdmin = false;
+                const serverMax = data.max_id || 0;
+                if (seenUpTo > serverMax) { seenUpTo = 0; persistSeen(); } // server was reset
+                if (fullRedraw) {
+                    const system = messagesEl.querySelector('.chat-bubble.system');
+                    messagesEl.innerHTML = '';
+                    if (system) messagesEl.appendChild(system);
+                    drawn.clear();
+                }
+                let added = false, unreadFromTeam = false;
                 list.forEach(function (m) {
-                    if (m.id > lastMsgId) {
-                        if (m.sender === 'admin') newAdmin = true;
-                        appendBubble(m);
-                    }
+                    if (appendBubble(m)) added = true;
+                    if (m.sender !== 'visitor' && m.id > seenUpTo) unreadFromTeam = true;
                 });
-                if (newAdmin && !widget.classList.contains('is-open') && badge) {
+                if (isOpen()) {
+                    if (added) scrollDown();
+                    if (serverMax > seenUpTo) { seenUpTo = serverMax; persistSeen(); }
+                } else if (unreadFromTeam && badge) {
                     badge.hidden = false;
                 }
             })
-            .catch(function () {});
+            .catch(function () { busy = false; });
     }
 
-    function startPolling(intervalMs) {
+    function startPolling() {
         stopPolling();
         pollTimer = setInterval(function () {
-            if (document.visibilityState === 'visible') pollMessages();
-        }, intervalMs || 8000);
+            if (document.visibilityState !== 'visible') return;
+            fetchMessages(false);
+        }, isOpen() ? 4000 : 20000);
     }
 
     function stopPolling() {
@@ -135,6 +130,11 @@
             pollTimer = null;
         }
     }
+
+    // Coming back to the tab: check immediately instead of waiting for the next tick.
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && getSessionKey()) fetchMessages(false);
+    });
 
     fab.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -186,6 +186,8 @@
                         if (data.session_key) setSessionKey(data.session_key);
                         if (data.message) appendBubble(data.message);
                         if (data.ai_message) appendBubble(data.ai_message);
+                        scrollDown();
+                        fetchMessages(false);
                     } else {
                         // Keep the visitor's text so nothing is lost, and tell them why it failed
                         input.value = text;
@@ -203,11 +205,6 @@
         });
     }
 
-    // Background poll for badge when closed — only if user has an active chat session
-    setInterval(function () {
-        if (document.visibilityState !== 'visible') return;
-        if (widget.classList.contains('is-open')) return;
-        if (!getSessionKey()) return;
-        pollMessages();
-    }, 15000);
+    // Start in the background (badge for new replies while the window is closed)
+    if (getSessionKey()) { startPolling(); fetchMessages(false); }
 })();

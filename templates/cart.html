@@ -21,6 +21,8 @@
                             {{ '%.0f'|format(o.total_amount) }} ብር
                             · {% for it in o.items %}{{ it.product_name }} {{ it.weight_kg }}{{ unit_label(it.unit or 'kg', current_lang) }}×{{ it.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}
                         </div>
+                        <div style="margin-top:6px;"><a href="{{ url_for('order_success', order_number=o.order_number) }}" style="font-weight:600;">
+                            {% if current_lang == 'am' %}ትዕዛዙን ክፈት ›{% else %}Open this order ›{% endif %}</a></div>
                         {% if o.estimated_delivery %}
                         <div style="margin-top:6px;color:#1565c0;font-weight:600;font-size:.9rem;">
                             {% if current_lang == 'am' %}የመድረሻ ግምት{% else %}Delivery estimate{% endif %}:
@@ -33,7 +35,17 @@
                         {% elif o.status == 'confirmed' %}background:#e8f5e9;color:#2e7d32;
                         {% elif o.status == 'delivered' %}background:#e3f2fd;color:#1565c0;
                         {% else %}background:#f5f5f5;color:#555;{% endif %}">
-                        {% if o.status == 'pending' %}
+                        {% if o.status == 'pending' and o.payment_status == 'awaiting_quote' %}
+                            {% if current_lang == 'am' %}የማድረሻ ዋጋ በመጠባበቅ ላይ{% else %}Waiting for delivery fee{% endif %}
+                        {% elif o.status == 'pending' and o.payment_status == 'awaiting_customer' %}
+                            {% if current_lang == 'am' %}የእርስዎን ማረጋገጫ ይጠብቃል{% else %}Waiting for your confirmation{% endif %}
+                        {% elif o.status == 'pending' and o.payment_required and o.payment_status in ['pending', 'rejected'] %}
+                            {% if o.payment_status == 'pending' and (o.receipt_path or o.transaction_id) %}
+                                {% if current_lang == 'am' %}ክፍያ በማረጋገጥ ላይ{% else %}Payment being verified{% endif %}
+                            {% else %}
+                                {% if current_lang == 'am' %}ክፍያ ያስፈልጋል{% else %}Payment needed{% endif %}
+                            {% endif %}
+                        {% elif o.status == 'pending' %}
                             {% if current_lang == 'am' %}በመጠባበቅ ላይ{% else %}Pending{% endif %}
                         {% elif o.status == 'confirmed' %}
                             {% if current_lang == 'am' %}ተረጋግጧል{% else %}Confirmed{% endif %}

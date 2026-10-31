@@ -22,6 +22,7 @@
             <a href="{{ url_for('admin_transporters') }}" class="nav-item {% if request.endpoint == 'admin_transporters' %}active{% endif %}">Transporters</a>
             <a href="{{ url_for('admin_support') }}" class="nav-item {% if 'support' in request.endpoint %}active{% endif %}">Support</a>
             <a href="{{ url_for('admin_vat_delivery') }}" class="nav-item {% if request.endpoint == 'admin_vat_delivery' %}active{% endif %}">VAT &amp; Delivery</a>
+            <a href="{{ url_for('admin_bank_ledger') }}" class="nav-item {% if request.endpoint in ('admin_bank_ledger',) %}active{% endif %}">Money received</a>
             <a href="{{ url_for('admin_admins') }}" class="nav-item {% if request.endpoint == 'admin_admins' %}active{% endif %}">Admins</a>
             <a href="{{ url_for('admin_audit') }}" class="nav-item {% if request.endpoint == 'admin_audit' %}active{% endif %}">Audit log</a>
             <a href="{{ url_for('admin_settings') }}" class="nav-item {% if request.endpoint == 'admin_settings' %}active{% endif %}">Settings</a>

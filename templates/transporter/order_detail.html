@@ -59,7 +59,10 @@
             </p>
             <p>
                 <strong>Payment:</strong>
-                {% if order.total_amount > prepay_max %}
+                {% if order.total_amount > prepay_max and order.has_deposit %}
+                    <span class="paid">Deposit {{ '%.0f'|format(order.deposit_amount) }} ብር paid by bank ✓</span><br>
+                    <span class="unpaid">Collect <strong>{{ '%.0f'|format(order.cod_expected) }} ብር CASH</strong> on delivery / {{ '%.0f'|format(order.cod_expected) }} ብር ይሰብስቡ</span>
+                {% elif order.total_amount > prepay_max %}
                     <span class="unpaid">NOT prepaid — collect {{ '%.0f'|format(order.total_amount) }} ብር on delivery</span>
                 {% elif order.payment_required and order.payment_status == 'confirmed' %}
                     <span class="paid">PAID (bank confirmed) — do not collect</span>
@@ -222,9 +225,9 @@
                 <div style="margin-bottom:10px;">
                     <label style="display:block;font-weight:600;margin-bottom:4px;">Amount collected (ብር) *</label>
                     <input type="number" name="amount_collected" step="0.01" required
-                           placeholder="{{ '%.0f'|format(order.total_amount) }}"
+                           placeholder="{{ '%.0f'|format(order.cod_expected or order.total_amount) }}"
                            style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;">
-                    <small style="color:#666;">Order total is {{ '%.0f'|format(order.total_amount) }} ብር — enter what you actually collected</small>
+                    <small style="color:#666;">Expected cash: {{ '%.0f'|format(order.cod_expected or order.total_amount) }} ብር{% if order.has_deposit %} (order total {{ '%.0f'|format(order.total_amount) }} − deposit {{ '%.0f'|format(order.deposit_amount) }} paid by bank){% endif %} — enter what you actually collected</small>
                 </div>
                 <div style="margin-bottom:10px;">
                     <label style="display:block;font-weight:600;margin-bottom:4px;">Receipt photo *</label>

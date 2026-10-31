@@ -79,7 +79,9 @@
                 {% endif %}
                 <p>
                     Payment:
-                    {% if o.total_amount > prepay_max %}
+                    {% if o.total_amount > prepay_max and o.has_deposit %}
+                        <span class="badge unpaid">Collect {{ '%.0f'|format(o.cod_expected) }} ብር cash (deposit paid by bank)</span>
+                    {% elif o.total_amount > prepay_max %}
                         <span class="badge unpaid">Collect on delivery (over 100,000)</span>
                     {% elif o.payment_required %}
                         {% if o.payment_status == 'confirmed' %}

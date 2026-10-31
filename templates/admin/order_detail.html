@@ -179,7 +179,7 @@
                 Request payment / send notice to customer
             </button>
             <p class="hint" style="margin-top:8px;">
-                ≤100k → customer pays by bank. &gt;100k → customer accepts COD (pay on delivery).
+                ≤100k → customer pays the full amount by bank. &gt;100k → customer pays {{ deposit_percent }}% by bank now, the transporter collects the rest in cash on delivery.
             </p>
         </form>
         <script>
@@ -258,6 +258,11 @@
 
     <div class="detail-card">
         <h3>COD delivery receipt (over 100,000)</h3>
+        {% if order.has_deposit %}
+        <p style="margin:0 0 8px;"><strong>Deposit paid by bank:</strong> {{ '%.0f'|format(order.deposit_amount) }} ብር
+           ({{ 'confirmed ✓' if order.payment_status == 'confirmed' else order.payment_status }}) ·
+           <strong>Cash for transporter:</strong> {{ '%.0f'|format(order.cod_expected) }} ብር</p>
+        {% endif %}
         {% if order.delivery_receipt_path %}
         <p style="color:#2e7d32;font-weight:700;">✓ Transporter sent receipt</p>
         <p><strong>Collected:</strong> {{ '%.0f'|format(order.cod_amount_collected or 0) }} ብር</p>
@@ -267,9 +272,10 @@
             <img src="{{ url_for('order_file', oid=order.id, kind='cod') }}" alt="COD receipt"
                  style="max-width:220px;border-radius:8px;margin-top:6px;border:1px solid #ddd;">
         </a>
-        {% set diff = ((order.cod_amount_collected or 0) - order.total_amount)|abs %}
-        {% if order.cod_amount_collected is not none and diff > [1, order.total_amount * 0.02]|max %}
-        <p style="margin-top:10px;color:#c62828;font-weight:700;">⚠ Collected amount differs from the order total by {{ '%.0f'|format(diff) }} ብር.</p>
+        {% set exp = order.cod_expected or order.total_amount %}
+        {% set diff = ((order.cod_amount_collected or 0) - exp)|abs %}
+        {% if order.cod_amount_collected is not none and diff > [1, exp * 0.02]|max %}
+        <p style="margin-top:10px;color:#c62828;font-weight:700;">⚠ Collected amount differs from the expected cash ({{ '%.0f'|format(exp) }} ብር) by {{ '%.0f'|format(diff) }} ብር.</p>
         {% endif %}
         {% if order.cod_approved %}
         <p style="color:#2e7d32;font-weight:700;">✓ Approved by admin</p>

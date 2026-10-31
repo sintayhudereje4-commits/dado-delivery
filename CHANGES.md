@@ -1,3 +1,9 @@
+# Version 3
+- Live chat: customer window and admin chat page update by themselves (no refresh needed, no cached answers).
+- Bank ledger: money received per bank account, automatic from confirmed payments, manual entries, refunds, CSV.
+- Orders over 100,000 ETB: 50% bank deposit up-front, remainder cash to the transporter (amounts shown to customer, admin, transporter).
+- Interrupted checkout: order is found again after a refresh; cart emptied; clearer status labels in the cart.
+
 # Version 2 - reliability, abuse and workflow fixes
 - Durability: uploads copied into PostgreSQL, backup.py, pool_pre_ping, dashboard warning on SQLite/Render.
 - Abuse: stale-order auto-cancel (also never-quoted orders), per-phone open-order cap, optional login-to-order,

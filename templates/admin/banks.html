@@ -4,7 +4,8 @@
 <div class="page-header">
     <h1>Bank Accounts</h1>
 </div>
-<p class="hint">Customers with orders 100–100,000 ETB deposit here and send transaction ID or receipt.</p>
+<p class="hint">Customers with orders 100–100,000 ETB deposit here and send transaction ID or receipt. For orders over 100,000 ETB they pay {{ deposit_percent }}% here and the rest to the transporter.
+    <a href="{{ url_for('admin_bank_ledger') }}"><strong>→ See the money received in these accounts</strong></a></p>
 
 <form method="POST" class="admin-form" style="margin-bottom:28px;">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

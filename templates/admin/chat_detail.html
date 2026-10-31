@@ -14,21 +14,22 @@
     <p><strong>Session:</strong> <code>{{ chat.session_key[:12] }}…</code></p>
 </div>
 
-<div class="detail-card full" style="max-height:420px; overflow-y:auto; background:#f5f7f5;">
+<div class="detail-card full" id="chatBox" style="max-height:420px; overflow-y:auto; background:#f5f7f5;">
     {% for m in chat.messages %}
-    <div style="margin:10px 0; {% if m.sender == 'visitor' %}text-align:right;{% endif %}">
-        <span style="display:inline-block; max-width:80%; padding:10px 12px; border-radius:12px;
+    <div data-mid="{{ m.id }}" style="margin:10px 0; {% if m.sender == 'visitor' %}text-align:right;{% endif %}">
+        <span style="display:inline-block; max-width:80%; padding:10px 12px; border-radius:12px; text-align:left;
             {% if m.sender == 'visitor' %}background:#2E7D32;color:#fff;{% else %}background:#fff;border:1px solid #ddd;{% endif %}">
             <small style="opacity:0.8;">{{ m.sender }} · {{ m.created_at|addis('%H:%M') }}</small><br>
-            {{ m.message }}
+            <span style="white-space:pre-wrap;">{{ m.message }}</span>
         </span>
     </div>
     {% else %}
-    <p style="color:#888;">No messages yet</p>
+    <p id="noMsgs" style="color:#888;">No messages yet</p>
     {% endfor %}
 </div>
+<p id="liveNote" style="font-size:.8rem;color:#777;margin:6px 0 0;">● Live — new messages appear automatically.</p>
 
-<form method="POST" class="admin-form" style="margin-top:16px; max-width:640px;">
+<form method="POST" id="replyForm" class="admin-form" style="margin-top:16px; max-width:640px;">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
         <label for="message">Reply as Admin</label>
@@ -39,4 +40,83 @@
         <button type="submit" name="action" value="close" class="btn btn-outline" formnovalidate>Close Chat</button>
     </div>
 </form>
+
+<script>
+(function () {
+    var box = document.getElementById('chatBox');
+    var form = document.getElementById('replyForm');
+    var ta = document.getElementById('message');
+    var url = {{ url_for('admin_chat_messages', cid=chat.id)|tojson }};
+    var lastId = {{ (chat.messages[-1].id if chat.messages else 0)|tojson }};
+    var drawn = {};
+    box.querySelectorAll('[data-mid]').forEach(function (n) { drawn[n.getAttribute('data-mid')] = 1; });
+    box.scrollTop = box.scrollHeight;
+
+    function bubble(m) {
+        if (drawn[m.id]) return false;
+        drawn[m.id] = 1;
+        var visitor = m.sender === 'visitor';
+        var row = document.createElement('div');
+        row.setAttribute('data-mid', m.id);
+        row.style.cssText = 'margin:10px 0;' + (visitor ? 'text-align:right;' : '');
+        var span = document.createElement('span');
+        span.style.cssText = 'display:inline-block;max-width:80%;padding:10px 12px;border-radius:12px;text-align:left;' +
+            (visitor ? 'background:#2E7D32;color:#fff;' : 'background:#fff;border:1px solid #ddd;');
+        var small = document.createElement('small');
+        small.style.opacity = '0.8';
+        small.textContent = m.sender + ' · ' + (m.created_at || '');
+        var body = document.createElement('span');
+        body.style.whiteSpace = 'pre-wrap';
+        body.textContent = m.message;
+        span.appendChild(small); span.appendChild(document.createElement('br')); span.appendChild(body);
+        row.appendChild(span);
+        var empty = document.getElementById('noMsgs'); if (empty) empty.remove();
+        box.appendChild(row);
+        if (m.id > lastId) lastId = m.id;
+        return true;
+    }
+
+    var busy = false;
+    function poll() {
+        if (busy || document.visibilityState !== 'visible') return;
+        busy = true;
+        fetch(url + '?after=' + lastId + '&_=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                busy = false;
+                if (!d) return;
+                var nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+                var added = false;
+                (d.messages || []).forEach(function (m) { if (bubble(m)) added = true; });
+                if (added && nearBottom) box.scrollTop = box.scrollHeight;
+                if (added) { try { document.title = '● ' + document.title.replace(/^● /, ''); } catch (e) {} }
+            })
+            .catch(function () { busy = false; });
+    }
+    setInterval(poll, 3000);
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') { document.title = document.title.replace(/^● /, ''); poll(); }
+    });
+
+    // Send the reply without reloading the page (keeps scroll position, shows it at once)
+    form.addEventListener('submit', function (e) {
+        var submitter = e.submitter;
+        if (submitter && submitter.value === 'close') return;   // "Close chat" = normal submit
+        e.preventDefault();
+        var text = (ta.value || '').trim();
+        if (!text) return;
+        var fd = new FormData(form);
+        fd.set('message', text);
+        ta.disabled = true;
+        fetch(location.href, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                ta.disabled = false;
+                if (d && d.ok) { ta.value = ''; poll(); } else { alert('Message was not sent'); }
+                ta.focus();
+            })
+            .catch(function () { ta.disabled = false; alert('Network error — message not sent'); });
+    });
+})();
+</script>
 {% endblock %}
