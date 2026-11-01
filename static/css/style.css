@@ -101,6 +101,7 @@ body {
 }
 .flash-success { background: #e8f5e9; color: #2e7d32; }
 .flash-error { background: #ffebee; color: #c62828; }
+.flash-info { background: #e3f2fd; color: #1565c0; }
 
 /* Main */
 .main { flex: 1; }

@@ -93,7 +93,7 @@ Open: http://127.0.0.1:5000
 |---|---|---|
 | `NOTIFY_SMS` | send order SMS (payment request, dispatched + code, delivered, cancelled; assignment to transporter) | on when a real SMS provider is set |
 | `SMS_LANG` | `am` or `en` for those SMS | `am` |
-| `REQUIRE_LOGIN_TO_ORDER` | `1` = only logged-in customers can order (use together with SMS/OTP) | off |
+| `ALLOW_GUEST_CHECKOUT` | `1` = let visitors order without an account (old behaviour) | off - an account is required to check out |
 | `MAX_OPEN_ORDERS_PER_PHONE` | unfinished orders allowed per phone | 3 |
 | `QUOTE_TIMEOUT_HOURS` | auto-cancel never-quoted / unaccepted orders after | 72 |
 | `LOW_STOCK_THRESHOLD` | dashboard low-stock warning | 10 |
@@ -218,3 +218,8 @@ to the order page - no duplicate order and no stale cart.
 - Admin → Settings → *Home page message* holds the line under the big heading on the home page (Amharic and English).
   Leave both empty to hide it.
 - Customer-facing texts say "our team" / "ቡድናችን" instead of "admin".
+
+## Account needed to order
+Anyone can browse the shop and fill a cart. Pressing *Proceed to Checkout* without being logged in sends the visitor to the
+login page (with a Register link); after logging in or registering they land on checkout again with the cart kept
+(the cart lives in the browser). The search bar is shown on the home page only.

@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% block search_bar %}{% endblock %}
 {% block title %}{% if current_lang == 'am' %}ክፍያ{% else %}Checkout{% endif %} - {{ settings.site_name }}{% endblock %}
 
 {% block extra_head %}
@@ -414,6 +413,10 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
             const res = await fetch('{{ url_for("checkout") }}', { method: 'POST', body: fd });
             const data = await res.json();
+            if (data.code === 'login_required') {
+                window.location.href = data.redirect;   // session ended: log in, then come back here
+                return;
+            }
             if (data.success) {
                 try { localStorage.removeItem('dado_checkout_pending'); } catch (e) {}
                 clearCart();

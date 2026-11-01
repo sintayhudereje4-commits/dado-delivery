@@ -1562,11 +1562,27 @@ def attach_guest_orders_to_customer(customer):
 
 def start_fresh_session(**values):
     """New session after login (prevents session fixation); keeps language & pending orders."""
-    keep = {k: session[k] for k in ('lang', 'pending_orders', '_csrf') if k in session}
+    keep = {k: session[k] for k in ('lang', 'pending_orders', '_csrf', 'after_login') if k in session}
     session.clear()
     session.update(keep)
     session.update(values)
     session.setdefault('_csrf', secrets.token_hex(16))
+
+
+def redirect_after_auth():
+    """After login / registration: go back to where the customer was heading (e.g. checkout)."""
+    nxt = request.args.get('next') or request.form.get('next')
+    note = session.pop('after_login', None)
+    if not nxt and isinstance(note, dict) and time.time() - float(note.get('ts') or 0) < 1800:
+        nxt = note.get('path')
+    if nxt and is_safe_path(nxt):
+        return redirect(nxt)
+    return redirect(url_for('index'))
+
+
+def allow_guest_checkout():
+    """Ordering needs an account. Set ALLOW_GUEST_CHECKOUT=1 only if you want the old open behaviour."""
+    return (os.environ.get('ALLOW_GUEST_CHECKOUT') or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def get_current_customer():
@@ -1914,6 +1930,15 @@ def _json_error(message, status=400, **extra):
 def checkout():
     settings = get_settings()
     banks = BankAccount.query.filter_by(is_active=True).order_by(BankAccount.sort_order, BankAccount.id).all()
+    # Anyone can browse and fill a cart, but placing an order needs an account.
+    if not get_current_customer() and not allow_guest_checkout():
+        session['after_login'] = {'path': url_for('checkout'), 'ts': int(time.time())}
+        msg = tx('ትዕዛዝ ለመስጠት እባክዎ ይግቡ፤ አካውንት ከሌለዎት ይመዝገቡ። ጋሪዎ እንደተቀመጠ ይቆያል።',
+                 'To place an order please log in, or register if you do not have an account yet. Your cart is saved.')
+        if request.method == 'POST':
+            return _json_error(msg, 401, code='login_required', redirect=url_for('customer_login'))
+        flash(msg, 'info')
+        return redirect(url_for('customer_login'))
     if request.method != 'POST':
         return render_template('checkout.html', banks=banks)
 
@@ -1975,10 +2000,6 @@ def checkout():
     if not phone:
         return _json_error(_('Please enter a valid Ethiopian phone number (e.g. 0911 234 567)'))
 
-    if (os.environ.get('REQUIRE_LOGIN_TO_ORDER') or '').strip().lower() in ('1', 'true', 'yes', 'on') \
-            and not get_current_customer():
-        return _json_error(tx('ትዕዛዝ ለማዘዝ እባክዎ በመጀመሪያ ይግቡ ወይም ይመዝገቡ።',
-                              'Please log in or register before placing an order.'), 401)
     # Limit unfinished orders per phone so fake orders cannot lock up the stock.
     max_open = form_env_int('MAX_OPEN_ORDERS_PER_PHONE', 3, 1, 50)
     open_count = Order.query.filter(
@@ -2597,7 +2618,7 @@ def register():
         session.permanent = True
         attach_guest_orders_to_customer(c)
         flash(_('Account created successfully'), 'success')
-        return redirect(url_for('index'))
+        return redirect_after_auth()
     return render_template('auth/register.html', otp_on=otp_enabled())
 
 
@@ -2653,7 +2674,7 @@ def register_verify():
         session.permanent = True
         attach_guest_orders_to_customer(c)
         flash(_('Phone verified. Account created successfully'), 'success')
-        return redirect(url_for('index'))
+        return redirect_after_auth()
 
     return render_template('auth/verify_otp.html', phone=phone, purpose='register')
 
@@ -2762,10 +2783,7 @@ def customer_login():
             start_fresh_session(customer_id=c.id)
             session.permanent = True
             flash(_('Logged in successfully'), 'success')
-            nxt = request.args.get('next') or request.form.get('next')
-            if nxt and is_safe_path(nxt):
-                return redirect(nxt)
-            return redirect(url_for('index'))
+            return redirect_after_auth()
         login_failed('customer', phone)
         flash(_('Invalid phone or password'), 'error')
     return render_template('auth/login.html')
