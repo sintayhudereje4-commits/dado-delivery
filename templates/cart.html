@@ -128,7 +128,7 @@ function renderCart() {
     const actions = document.getElementById('cartActions');
 
     if (!cart.length) {
-        container.innerHTML = '<p class="empty-msg">{% if current_lang == "am" %}ጋሪዎ ባዶ ነው — አዲስ እቃ ይጨምሩ ወይም ከላይ Pending ትዕዛዞችን ይመልከቱ{% else %}Your cart is empty — add items or see Pending orders above{% endif %}</p>';
+        container.innerHTML = '<p class="empty-msg">{% if current_lang == "am" %}ጋሪዎ ባዶ ነው — አዲስ እቃ ይጨምሩ ወይም ከላይ የተላኩ ትዕዛዞችን ይመልከቱ{% else %}Your cart is empty — add items or see your submitted orders above{% endif %}</p>';
         actions.style.display = 'none';
         return;
     }

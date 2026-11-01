@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% set st_labels = ({'pending':'በመጠባበቅ ላይ','confirmed':'ተረጋግጧል','preparing':'በዝግጅት ላይ','out_for_delivery':'በመንገድ ላይ','delivered':'ደርሷል','cancelled':'ተሰርዟል'}
+                    if current_lang == 'am' else
+                    {'pending':'Pending','confirmed':'Confirmed','preparing':'Preparing','out_for_delivery':'Out for delivery','delivered':'Delivered','cancelled':'Cancelled'}) %}
+{% set pay_labels = ({'awaiting_quote':'የማድረሻ ዋጋ በመጠባበቅ ላይ','awaiting_customer':'የእርስዎን ማረጋገጫ ይጠብቃል','pending':'ክፍያ በመጠባበቅ ላይ','rejected':'ክፍያ ውድቅ ተደርጓል','confirmed':'ክፍያ ተረጋግጧል','not_required':'ክፍያ አያስፈልግም'}
+                     if current_lang == 'am' else
+                     {'awaiting_quote':'Waiting for delivery fee','awaiting_customer':'Waiting for your confirmation','pending':'Waiting for payment','rejected':'Payment rejected','confirmed':'Payment confirmed','not_required':'No payment needed'}) %}
 {% block title %}{% if current_lang == 'am' %}ትዕዛዝ ተሳክቷል{% else %}Order Successful{% endif %} - {{ settings.site_name }}{% endblock %}
 
 {% block content %}
@@ -14,7 +20,7 @@
         </div>
         <p>
             <span id="statusBadge" style="background:#fff3e0;color:#e65100;padding:8px 16px;border-radius:20px;font-weight:700;">
-                {{ order.status|capitalize }}
+                {{ st_labels.get(order.status, order.status) }}
             </span>
         </p>
         <h1>{% if current_lang == 'am' %}ትዕዛዝ ተልኳል!{% else %}Order Submitted!{% endif %}</h1>
@@ -61,15 +67,15 @@
 
         <div id="awaitingQuoteBox" class="order-details-box" style="margin-top:12px;background:#fff8e1;color:#e65100;{% if order.payment_status != 'awaiting_quote' %}display:none;{% endif %}">
             {% if current_lang == 'am' %}
-            ትዕዛዝዎ ተቀብሏል። አስተዳዳሪ የዴሊቨሪ ክፍያውን ካስላ በኋላ የክፍያ መመሪያ እዚህ ይታያል። ይህን ገጽ ክፈተው ይጠብቁ።
+            ትዕዛዝዎ ተቀብሏል። ቡድናችን የማድረሻ ክፍያውን ካሳወቀ በኋላ የክፍያ መመሪያ እዚህ ይታያል። ይህን ገጽ ክፍት አድርገው ይጠብቁ።
             {% else %}
-            Order received. After the admin sets the delivery fee, payment instructions will appear here. Keep this page open.
+            Order received. Once our team has worked out the delivery fee, the payment instructions will appear here. Please keep this page open.
             {% endif %}
         </div>
 
         <div id="paymentBox" class="order-details-box" style="margin-top:12px;{% if not (order.payment_required and order.payment_status in ['pending','rejected']) %}display:none;{% endif %}">
             <p><strong>{% if current_lang == 'am' %}የክፍያ ሁኔታ{% else %}Payment status{% endif %}:</strong>
-                <span id="payStatus">{{ order.payment_status }}</span>
+                <span id="payStatus">{{ pay_labels.get(order.payment_status, order.payment_status) }}</span>
             </p>
             <p id="payNote">{% if order.payment_note %}{{ order.payment_note }}{% endif %}</p>
             <p><strong>{% if current_lang == 'am' %}የእቃዎች{% else %}Items{% endif %}:</strong> {{ '%.0f'|format(order.items_subtotal or 0) }} ብር
@@ -192,6 +198,8 @@
 (function(){
   var orderNo = {{ order.order_number|tojson }};
   var badge = document.getElementById('statusBadge');
+  var labels = {{ st_labels|tojson }};
+  var payLabels = {{ pay_labels|tojson }};
   var colors = {
     pending: {bg:'#fff3e0', fg:'#e65100'},
     confirmed: {bg:'#e8f5e9', fg:'#2e7d32'},
@@ -205,8 +213,8 @@
     var c = colors[status] || colors.pending;
     badge.style.background = c.bg;
     badge.style.color = c.fg;
-    badge.textContent = (status || 'pending').replace(/_/g, ' ');
-    badge.style.textTransform = 'capitalize';
+    badge.textContent = labels[status] || (status || 'pending').replace(/_/g, ' ');
+    badge.style.textTransform = 'none';
   }
   paint({{ order.status|tojson }});
   var lastPay = {{ order.payment_status|tojson }};
@@ -248,7 +256,7 @@
           var showPay = d.payment_required && (d.payment_status === 'pending' || d.payment_status === 'rejected');
           payBox.style.display = showPay ? '' : 'none';
           var ps = document.getElementById('payStatus');
-          if (ps) ps.textContent = d.payment_status || '';
+          if (ps) ps.textContent = payLabels[d.payment_status] || d.payment_status || '';
           var pn = document.getElementById('payNote');
           if (pn) pn.textContent = d.payment_note || '';
           var po = document.getElementById('payOkMsg');

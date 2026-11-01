@@ -5,13 +5,25 @@
 <section class="hero">
     <div class="container">
         <h1>{% if current_lang == 'am' %}ወደ ቤትዎ የሚደርስ ጥራት ያለው እህል{% else %}Quality Grains Delivered to Your Door{% endif %}</h1>
-        <p>{% if current_lang == 'am' %}ምስር፣ ባቄላ፣ ሽሮ፣ አተር እና ሌሎችም — በፍጥነት እና በታማኝነት{% else %}Lentils, beans, shiro, peas and more — fast & reliable delivery{% endif %}</p>
+        {% set tagline = (settings.hero_tagline_am or settings.hero_tagline_en) if current_lang == 'am' else (settings.hero_tagline_en or settings.hero_tagline_am) %}
+        {% if tagline %}<p>{{ tagline }}</p>{% endif %}
     </div>
 </section>
 
 <section class="products-section">
     <div class="container">
         <h2 class="section-title">{% if current_lang == 'am' %}ምርቶቻችን{% else %}Our Products{% endif %}</h2>
+
+        {% if search_q %}
+        <p class="search-result-note">
+            {% if current_lang == 'am' %}
+                «{{ search_q }}» — {{ products|length }} ምርት ተገኝቷል
+            {% else %}
+                {{ products|length }} result{{ '' if products|length == 1 else 's' }} for “{{ search_q }}”
+            {% endif %}
+            · <a href="{{ url_for('index') }}">{% if current_lang == 'am' %}ፍለጋውን አጽዳ{% else %}Clear search{% endif %}</a>
+        </p>
+        {% endif %}
 
         {% if categories %}
         <div class="category-tabs">
@@ -63,7 +75,13 @@
                 </a>
             </article>
             {% else %}
-            <p class="empty-msg">{% if current_lang == 'am' %}ምንም ምርት አልተገኘም{% else %}No products available{% endif %}</p>
+            <p class="empty-msg">
+                {% if search_q %}
+                    {% if current_lang == 'am' %}ምንም ምርት አልተገኘም። በሌላ ቃል ይሞክሩ (ለምሳሌ፦ ምስር፣ ሽሮ)።{% else %}No product matches your search. Try another word (e.g. lentils, shiro).{% endif %}
+                {% else %}
+                    {% if current_lang == 'am' %}ምንም ምርት አልተገኘም{% else %}No products available{% endif %}
+                {% endif %}
+            </p>
             {% endfor %}
         </div>
     </div>

@@ -220,3 +220,75 @@ function refreshCartPrices(cb) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', check);
     else check();
 })();
+
+/* Product search: suggestions while typing; Enter / the button open the full result list. */
+(function productSearch() {
+    function init() {
+        var input = document.getElementById('siteSearch');
+        var box = document.getElementById('searchSuggest');
+        if (!input || !box) return;
+        var am = (document.documentElement.lang || '').toLowerCase().indexOf('am') === 0;
+        var timer = null, seq = 0, items = [], active = -1;
+
+        function close() { box.hidden = true; box.innerHTML = ''; active = -1; }
+
+        function render(list, term) {
+            items = list;
+            box.innerHTML = '';
+            if (!list.length) {
+                var none = document.createElement('div');
+                none.className = 'ss-none';
+                none.textContent = am ? 'ምንም ምርት አልተገኘም' : 'No product found';
+                box.appendChild(none);
+                box.hidden = false;
+                return;
+            }
+            list.forEach(function (it) {
+                var a = document.createElement('a');
+                a.href = it.url;
+                var pic;
+                if (it.image) { pic = document.createElement('img'); pic.src = it.image; pic.alt = ''; pic.loading = 'lazy'; }
+                else { pic = document.createElement('span'); pic.className = 'ss-ph'; pic.textContent = (it.name || '?').charAt(0); }
+                var nm = document.createElement('span'); nm.className = 'ss-name'; nm.textContent = it.name;
+                var pr = document.createElement('span'); pr.className = 'ss-price';
+                pr.textContent = it.in_stock && it.price ? (am ? 'ከ ' : 'From ') + Math.round(it.price) + ' ብር' : (am ? 'አሁን አይገኝም' : 'Out of stock');
+                a.appendChild(pic); a.appendChild(nm); a.appendChild(pr);
+                box.appendChild(a);
+            });
+            var all = document.createElement('a');
+            all.className = 'ss-all';
+            all.href = '/?q=' + encodeURIComponent(term);
+            all.textContent = am ? 'ሁሉንም ውጤት ይመልከቱ ›' : 'See all results ›';
+            box.appendChild(all);
+            box.hidden = false;
+        }
+
+        function search() {
+            var term = input.value.trim();
+            if (term.length < 2) { close(); return; }
+            var mine = ++seq;
+            fetch('/api/search?q=' + encodeURIComponent(term), { credentials: 'same-origin', cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (mine === seq) render(d.items || [], term); })
+                .catch(function () {});
+        }
+
+        input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(search, 250); });
+        input.addEventListener('focus', function () { if (input.value.trim().length >= 2) search(); });
+        input.addEventListener('keydown', function (e) {
+            var links = box.querySelectorAll('a');
+            if (e.key === 'Escape') { close(); return; }
+            if (!links.length || box.hidden) return;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                active = (active + (e.key === 'ArrowDown' ? 1 : -1) + links.length) % links.length;
+                links.forEach(function (l, i) { l.classList.toggle('is-active', i === active); });
+            } else if (e.key === 'Enter' && active >= 0) {
+                e.preventDefault();
+                window.location.href = links[active].href;
+            }
+        });
+        document.addEventListener('click', function (e) { if (!box.contains(e.target) && e.target !== input) close(); });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

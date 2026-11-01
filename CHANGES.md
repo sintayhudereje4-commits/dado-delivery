@@ -1,3 +1,8 @@
+# Version 4
+- Customer pages: no more "admin" wording (our team / ቡድናችን), readable order and payment status words.
+- Product search bar with suggestions on every customer page.
+- Home page tagline is now an admin setting (the old fixed lentils/beans line was removed).
+
 # Version 3
 - Live chat: customer window and admin chat page update by themselves (no refresh needed, no cached answers).
 - Bank ledger: money received per bank account, automatic from confirmed payments, manual entries, refunds, CSV.

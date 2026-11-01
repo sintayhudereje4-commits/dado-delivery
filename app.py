@@ -706,6 +706,9 @@ class SiteSettings(db.Model):
     help_telegram = db.Column(db.String(80), default='+251900000000')  # phone or @username
     footer_text_am = db.Column(db.Text, default='በDado Delivery ይደሰቱ')
     footer_text_en = db.Column(db.Text, default='Enjoy with Dado Delivery')
+    # Short line under the big heading on the home page (edited by the admin in Settings). Empty = hidden.
+    hero_tagline_am = db.Column(db.Text, default='')
+    hero_tagline_en = db.Column(db.Text, default='')
     # When True, chat AI replies if admin has not answered recently. Default off.
     ai_chat_enabled = db.Column(db.Boolean, default=False)
     # Flat delivery / transport fee (ETB). Managed under Admin → VAT & Delivery.
@@ -1807,11 +1810,68 @@ def set_language(lang):
 def index():
     categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order, Category.id).all()
     cat_id = safe_int(request.args.get('category'), None)
-    q = Product.query.filter_by(is_active=True)
-    if cat_id:
-        q = q.filter_by(category_id=cat_id)
-    products = q.order_by(Product.sort_order, Product.id).all()
-    return render_template('index.html', products=products, categories=categories, active_category=cat_id)
+    search = ' '.join((request.args.get('q') or '').split())[:60]
+    if search:
+        # searching looks in every category
+        products = _search_products(search)
+        cat_id = None
+    else:
+        q = Product.query.filter_by(is_active=True)
+        if cat_id:
+            q = q.filter_by(category_id=cat_id)
+        products = q.order_by(Product.sort_order, Product.id).all()
+    return render_template('index.html', products=products, categories=categories,
+                           active_category=cat_id, search_q=search)
+
+
+def _like_pattern(word):
+    return '%' + word.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def _search_products(term, limit=None):
+    """Active products whose name, description or category contains every word of `term` (am or en)."""
+    words = [w for w in ' '.join((term or '').split()).split(' ') if w][:5]
+    if not words:
+        return []
+    query = Product.query.filter_by(is_active=True).outerjoin(Category, Product.category_id == Category.id)
+    for w in words:
+        pat = _like_pattern(w)
+        query = query.filter(or_(
+            Product.name_am.ilike(pat, escape='\\'), Product.name_en.ilike(pat, escape='\\'),
+            Product.description_am.ilike(pat, escape='\\'), Product.description_en.ilike(pat, escape='\\'),
+            Category.name_am.ilike(pat, escape='\\'), Category.name_en.ilike(pat, escape='\\'),
+        ))
+    rows = query.order_by(Product.sort_order, Product.id).all()
+    low = [w.lower() for w in words]
+
+    def score(p):  # products whose NAME matches every word come first
+        name = f'{p.name_am or ""} {p.name_en or ""}'.lower()
+        return 0 if all(w in name for w in low) else 1
+
+    rows.sort(key=score)
+    return rows[:limit] if limit else rows
+
+
+@app.route('/api/search')
+def api_search():
+    """Instant suggestions for the search box."""
+    term = ' '.join((request.args.get('q') or '').split())[:60]
+    items = []
+    if len(term) >= 2:
+        am = get_locale() == 'am'
+        for p in _search_products(term, limit=6):
+            prices = [v.price for v in p.variants if v.is_available and (v.stock or 0) > 0 and (v.price or 0) > 0]
+            items.append({
+                'id': p.id,
+                'name': (p.name_am if am else p.name_en) or p.name_en or p.name_am or '',
+                'price': min(prices) if prices else None,
+                'in_stock': bool(prices),
+                'image': url_for('static', filename=p.image_path) if p.image_path else '',
+                'url': url_for('product_detail', product_id=p.id),
+            })
+    resp = jsonify({'q': term, 'items': items})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/product/<int:product_id>')
@@ -2055,7 +2115,7 @@ def checkout():
             bank_name_snapshot='',
             bank_account_name_snapshot='',
             bank_account_number_snapshot='',
-            payment_note=_('Waiting for admin to set delivery fee'),
+            payment_note=tx('ትዕዛዝዎ ተቀብለናል — ቡድናችን የማድረሻ ክፍያውን እየወሰነ ነው።', 'Order received — our team is working out the delivery fee.'),
             delivery_code=f'{secrets.randbelow(10000):04d}',
             idem_key=(idem if len(idem) >= 16 else None),
         )
@@ -2268,9 +2328,9 @@ def ai_help_reply(user_message, settings=None):
     )
     if greet_pat.search(msg) and len(msg) < 40:
         return am_en(
-            f'ሰላም! እኔ የ {site} አውቶማቲክ ረዳት ነኝ። Admin ሳይኖር መረጃ እሰጣለሁ።\n'
+            f'ሰላም! እኔ የ {site} አውቶማቲክ ረዳት ነኝ። ቡድናችን በሥራ ላይ ሲሆንም መረጃ እሰጣለሁ።\n'
             'ስለ ምርት፣ ዋጋ፣ ማድረሻ፣ ክፍያ ወይም ትዕዛዝ ይጠይቁኝ።',
-            f'Hello! I am the {site} automatic assistant. I can help while admin is away.\n'
+            f'Hello! I am the {site} automatic assistant. I can help even while our team is busy.\n'
             'Ask about products, prices, delivery, payment, or orders.'
         )
 
@@ -2304,10 +2364,10 @@ def ai_help_reply(user_message, settings=None):
     if any(k in msg or k in raw for k in ['delivery', 'ማድረሻ', 'ይደርሳል', 'መጓጓዣ', 'transporter', 'አድራሽ', 'location', 'ቦታ', 'map', 'ካርታ', 'gps']):
         return am_en(
             'ማድረሻ፦ ትዕዛዝ ሲያስገቡ GPS ወይም ካርታ ላይ ቦታዎን ያስቀምጡ።\n'
-            'የመድረሻ ሰዓትን Admin ከትዕዛዝ በኋላ ያስተካክላል — በ Cart ላይ ያያሉ።\n'
+            'የመድረሻ ሰዓቱን ቡድናችን ከትዕዛዝ በኋላ ያሳውቅዎታል — በጋሪ ገጽ ላይ ያያሉ።\n'
             f'ከ 100,000 ብር በላይ፦ {DEPOSIT_PERCENT}% አሁን በባንክ፣ የቀረው እቃው ሲደርስ ለአጓጓዡ።',
             'Delivery: set your place with GPS or the map at checkout.\n'
-            'Admin sets delivery hours after you order — see it on Cart.\n'
+            'Our team confirms the delivery time after you order — you will see it on the Cart page.\n'
             f'Over 100,000 ETB: {DEPOSIT_PERCENT}% by bank now, the rest to the driver on delivery.'
         )
 
@@ -2315,10 +2375,10 @@ def ai_help_reply(user_message, settings=None):
     if any(k in msg or k in raw for k in ['payment', 'ክፍያ', 'ባንክ', 'bank', 'receipt', 'ደረሰኝ', 'transaction', 'ትራንዛክሽን', 'pay']):
         return am_en(
             'ክፍያ፦\n'
-            '• 100–100,000 ብር፦ ባንክ ይምረጡ፣ ትራንዛክሽን ID ወይም የደረሰኝ ፎቶ ይላኩ። Admin ካረጋገጠ ትዕዛዝ ይረጋገጣል።\n'
+            '• 100–100,000 ብር፦ ባንክ ይምረጡ፣ ትራንዛክሽን ID ወይም የደረሰኝ ፎቶ ይላኩ። ቡድናችን ክፍያውን ካረጋገጠ ትዕዛዝዎ ይቀጥላል።\n'
             f'• ከ 100,000 በላይ፦ {DEPOSIT_PERCENT}% አሁን በባንክ፣ የቀረውን እቃው ሲደርስ ለአጓጓዡ ይከፍላሉ።',
             'Payment:\n'
-            '• 100–100,000 ETB: pick a bank, send transaction ID or receipt photo. Admin confirms.\n'
+            '• 100–100,000 ETB: pick a bank, send transaction ID or receipt photo. Once we confirm the payment, your order moves on.\n'
             f'• Over 100,000 ETB: {DEPOSIT_PERCENT}% by bank now, the rest to the driver on delivery.'
         )
 
@@ -2340,10 +2400,10 @@ def ai_help_reply(user_message, settings=None):
             contact.append(f'Telegram: {telegram}')
         if email:
             contact.append(f'Email: {email}')
-        c = '\n'.join(contact) if contact else am_en('Admin በቅርቡ ይመልሳል።', 'Admin will reply soon.')
+        c = '\n'.join(contact) if contact else am_en('ቡድናችን በቅርቡ ይመልስልዎታል።', 'Our team will reply soon.')
         return am_en(
-            f'ሰው ማነጋገር ከፈለጉ፦\n{c}\n\nይህ መልእክት ለ Adminም ይቀመጣል።',
-            f'To reach a person:\n{c}\n\nYour message is also saved for Admin.'
+            f'ሰው ማነጋገር ከፈለጉ፦\n{c}\n\nመልእክትዎ ለቡድናችንም ደርሷል።',
+            f'To reach a person:\n{c}\n\nYour message has also been sent to our team.'
         )
 
     # account
@@ -2360,12 +2420,12 @@ def ai_help_reply(user_message, settings=None):
 
     # default
     return am_en(
-        'ገባኝ። Admin ሳይኖር እኔ (AI) እረዳዎታለሁ።\n'
+        'ገባኝ። እኔ አውቶማቲክ ረዳት ነኝ፤ ቡድናችን እስኪመልስ ልርዳዎት።\n'
         'ይጠይቁ፦ ምርት · ዋጋ · ማድረሻ · ክፍያ · ትዕዛዝ · ስልክ\n'
-        f'ወይም ሰው፦ {phone or "Admin በቅርቡ"}',
-        'Got it. I (AI) can help while admin is away.\n'
+        f'ወይም ሰው፦ {phone or "ቡድናችን በቅርቡ"}',
+        'Got it. I am the automatic assistant and can help while our team replies.\n'
         'Ask about: products · price · delivery · payment · order · contact\n'
-        f'Or a person: {phone or "Admin soon"}'
+        f'Or a person: {phone or "our team soon"}'
     )
 
 
@@ -2828,7 +2888,7 @@ def resubmit_payment(order_number):
     if new_path:
         order.receipt_path = new_path
     order.payment_status = 'pending'
-    order.payment_note = _('New payment proof submitted — waiting for admin review')
+    order.payment_note = tx('አዲስ የክፍያ ማስረጃ ደርሶናል — ቡድናችን እየተመለከተው ነው።', 'New payment proof received — our team is reviewing it.')
     try:
         log_order_change(order, 'payment_status', 'rejected', 'pending', actor='customer', note='resubmit')
     except Exception:
@@ -4429,6 +4489,9 @@ def admin_settings():
         settings.ai_chat_enabled = bool(request.form.get('ai_chat_enabled'))
         settings.footer_text_am = request.form.get('footer_text_am', '')
         settings.footer_text_en = request.form.get('footer_text_en', '')
+        settings.hero_tagline_am = ' '.join((request.form.get('hero_tagline_am') or '').split())[:200]
+        settings.hero_tagline_en = ' '.join((request.form.get('hero_tagline_en') or '').split())[:200]
+        audit('settings_site', f'hero tagline am="{settings.hero_tagline_am}" en="{settings.hero_tagline_en}"')
         settings.auth_primary_color = clean_color(request.form.get('auth_primary_color'), settings.auth_primary_color or '#2E7D32')
         settings.auth_font_family = clean_font(request.form.get('auth_font_family'), settings.font_family)
         settings.logo_display_height = form_int('logo_display_height', 80, 40, 300)
@@ -4596,6 +4659,8 @@ def init_db():
                 ('transporter_logo_path', "VARCHAR(255) DEFAULT ''"),
                 ('transporter_logo_height', 'INTEGER DEFAULT 80'),
                 ('auth_logo_height', 'INTEGER DEFAULT 80'),
+                ('hero_tagline_am', "TEXT DEFAULT ''"),
+                ('hero_tagline_en', "TEXT DEFAULT ''"),
             ]:
                 _ensure_column('site_settings', col, ddl)
         except Exception as e:

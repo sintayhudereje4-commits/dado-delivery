@@ -211,3 +211,10 @@ all time), filters by bank, type and date, and CSV export. The balance shown is 
 The browser keeps a random key for the order it is sending. If the page is refreshed or closed while "waiting", the next page
 load asks the server (`/api/checkout/recover`) whether that order was created; if yes the cart is emptied and the customer goes
 to the order page - no duplicate order and no stale cart.
+
+## Product search and home page message
+- A search box (with instant suggestions) is shown under the header on every customer page; searching looks in product
+  names, descriptions and categories, in Amharic and English. Results page: `/?q=word`.
+- Admin → Settings → *Home page message* holds the line under the big heading on the home page (Amharic and English).
+  Leave both empty to hide it.
+- Customer-facing texts say "our team" / "ቡድናችን" instead of "admin".

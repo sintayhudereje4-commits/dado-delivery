@@ -55,6 +55,20 @@
         </div>
     </header>
 
+    {% block search_bar %}
+    <div class="search-strip">
+        <div class="container">
+            <form class="search-form" action="{{ url_for('index') }}" method="GET" role="search" autocomplete="off">
+                <input type="search" id="siteSearch" name="q" value="{{ search_q or '' }}" maxlength="60"
+                       placeholder="{% if current_lang == 'am' %}እቃ ይፈልጉ… (ለምሳሌ ምስር፣ ሽሮ){% else %}Search products… (e.g. lentils, shiro){% endif %}"
+                       aria-label="{% if current_lang == 'am' %}እቃ ፈልግ{% else %}Search products{% endif %}" autocomplete="off">
+                <button type="submit" class="search-btn" aria-label="{% if current_lang == 'am' %}ፈልግ{% else %}Search{% endif %}">🔍</button>
+                <div class="search-suggest" id="searchSuggest" hidden></div>
+            </form>
+        </div>
+    </div>
+    {% endblock %}
+
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             <div class="flash-container">

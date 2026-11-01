@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block search_bar %}{% endblock %}
 {% block title %}{% if current_lang == 'am' %}ክፍያ{% else %}Checkout{% endif %} - {{ settings.site_name }}{% endblock %}
 
 {% block extra_head %}
@@ -86,7 +87,7 @@
                                 {% endfor %}
                             </select>
                             {% if not banks %}
-                            <p style="color:#c62828;margin-top:8px;">{% if current_lang == 'am' %}እስካሁን የባንክ አካውንት አልተቀመጠም — Admin ያክል{% else %}No bank accounts yet — admin must add{% endif %}</p>
+                            <p style="color:#c62828;margin-top:8px;">{% if current_lang == 'am' %}የባንክ ክፍያ ለጊዜው አልተዘጋጀም — እባክዎ ያነጋግሩን{% else %}Bank payment is not available right now — please contact us{% endif %}</p>
                             {% endif %}
                         </div>
                         <div id="bankDetails" class="bank-card" style="display:none;cursor:default;">
@@ -177,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function () {
           overNote.style.display = 'block';
           overNote.style.background = '#fff8e1';
           overNote.style.color = '#e65100';
-          overNote.textContent = '{% if current_lang == "am" %}ትዕዛዝዎ ወደ አስተዳዳሪ ይላካል። የዴሊቨሪ ክፍያ ከተወሰነ በኋላ የክፍያ መመሪያ ያያሉ።{% else %}Your order goes to the admin first. After they set the delivery fee you will get payment instructions.{% endif %}';
+          overNote.textContent = '{% if current_lang == "am" %}ትዕዛዝዎን ተቀብለን የማድረሻ ክፍያውን እናሳውቅዎታለን። ከዚያ በኋላ የክፍያ መመሪያ ያያሉ።{% else %}We will receive your order first and tell you the delivery fee. After that you will see the payment instructions.{% endif %}';
         }
         var payLine = document.getElementById('payAmountLine');
         if (payLine) payLine.innerHTML = '';

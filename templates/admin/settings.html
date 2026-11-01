@@ -148,6 +148,19 @@
         </div>
     </div>
 
+    <h3>Home page message / የመነሻ ገጽ መልእክት</h3>
+    <p class="hint">The short line shown under the big heading on the home page. Leave both empty to hide it.</p>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="hero_tagline_am">Message (Amharic)</label>
+            <input type="text" id="hero_tagline_am" name="hero_tagline_am" maxlength="200" value="{{ settings.hero_tagline_am or '' }}" placeholder="የራስዎን መልእክት ይጻፉ">
+        </div>
+        <div class="form-group">
+            <label for="hero_tagline_en">Message (English)</label>
+            <input type="text" id="hero_tagline_en" name="hero_tagline_en" maxlength="200" value="{{ settings.hero_tagline_en or '' }}" placeholder="Write your own message">
+        </div>
+    </div>
+
     <h3>Footer Text</h3>
     <div class="form-row">
         <div class="form-group">
